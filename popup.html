@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChatGPT Enhanced</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-left">
+      <svg class="logo-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M13 2L4.5 13H11L10 22L20.5 11H14L13 2Z"/>
+      </svg>
+      <span class="logo-text">ChatGPT Enhanced</span>
+    </div>
+    <span class="version" id="ext-version">v3.0.0</span>
+  </div>
+
+  <div class="section-label">Performance</div>
+
+  <div class="toggle-row" data-key="lagFix">
+    <div class="row-info">
+      <div class="row-title">Typing Lag Fix</div>
+      <div class="row-desc">Virtualizes off-screen messages to reduce CPU &amp; memory in long chats</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="toggle-row" data-key="compactSidebar">
+    <div class="row-info">
+      <div class="row-title">Compact Sidebar</div>
+      <div class="row-desc">Collapses sidebar tools into a single icon strip row</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="section-label">Productivity</div>
+
+  <div class="toggle-row" data-key="bulkActions">
+    <div class="row-info">
+      <div class="row-title">Bulk Archive / Delete</div>
+      <div class="row-desc">Hover over chats to reveal checkboxes, then act on many at once</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="toggle-row" data-key="dateGroups">
+    <div class="row-info">
+      <div class="row-title">Organize by Date <span class="badge-new">NEW</span></div>
+      <div class="row-desc">Groups sidebar chats into Today, Yesterday, Last 7 Days, Last Month and Older — click any heading to collapse it</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="section-label">Header Tools</div>
+
+  <div class="toggle-row" data-key="modelBadge">
+    <div class="row-info">
+      <div class="row-title">Model Badge</div>
+      <div class="row-desc">Shows the current AI model name next to the chat title</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="section-label">
+    Context Intelligence
+    <span class="badge-new">NEW</span>
+  </div>
+
+  <div class="toggle-row" data-key="contextBar">
+    <div class="row-info">
+      <div class="row-title">Context % Bar</div>
+      <div class="row-desc">Shows a live bar of how full the model's memory is — green → yellow → red</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="toggle-row" data-key="contextWarning">
+    <div class="row-info">
+      <div class="row-title">Context Limit Warning</div>
+      <div class="row-desc">Alerts you when ChatGPT hits the context window and starts forgetting messages</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="coming-soon">
+    <div class="coming-soon-title">Coming soon</div>
+    <ul class="coming-soon-list">
+      <li>Export conversation (Markdown / JSON / PDF)</li>
+      <li>Response time tracker per message</li>
+      <li>Session cost estimate (tokens × model pricing)</li>
+      <li>Search within current chat (Ctrl+F)</li>
+      <li>Prompt templates — save &amp; reuse with shortcuts</li>
+      <li>Pinned chats that stay at top of sidebar</li>
+      <li>Reading mode — strip UI to just conversation text</li>
+      <li>Auto-scroll toggle during AI streaming</li>
+      <li>Message word count &amp; reading time</li>
+      <li>Chat folders / labels for organization</li>
+      <li>Custom system prompt injector</li>
+      <li>Conversation usage analytics dashboard</li>
+    </ul>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
