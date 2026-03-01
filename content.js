@@ -1,5 +1,5 @@
 // ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.9
+// ChatGPT Enhanced - content.js  v3.3.10
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -735,8 +735,10 @@ function setupCompactSidebar() {
   }
 
   // TreeWalker only visits text nodes — avoids scanning every element.
-  // Walk up a MAX of 4 levels from the text node and stop at the FIRST element
-  // that does NOT contain chat links. Break immediately — never climb further.
+  // Walk up looking for the nearest element with cursor:pointer — that is the
+  // actual interactive target (e.g. the search button wrapper, the Projects
+  // button). Stopping at cursor:pointer ensures we hide the right element AND
+  // that native.click() triggers the correct action.
   function findByText(text) {
     const tw = document.createTreeWalker(qRoot, NodeFilter.SHOW_TEXT, {
       acceptNode: n => n.textContent.trim() === text ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
@@ -747,17 +749,20 @@ function setupCompactSidebar() {
     // Try closest semantic wrapper first
     let row = el?.closest('[data-sidebar-item]');
     if (!row) {
-      // Walk up at most 4 levels; stop at the FIRST safe container — do not keep climbing.
+      // Walk up to 5 levels; target the nearest cursor:pointer ancestor
+      // (the actual interactive element). Stop immediately on chat-link
+      // containers or elements that are too large to safely hide.
       let cur = el;
-      for (let i = 0; i < 4 && cur && cur !== qRoot; i++) {
+      for (let i = 0; i < 5 && cur && cur !== qRoot; i++) {
         cur = cur.parentElement;
         if (!cur || cur === qRoot) break;
-        if (cur.querySelector?.('a[href^="/c/"]')) break; // hit chat container — bail entirely
-        if (_isSafe(cur)) { row = cur; break; }            // found a safe wrapper — stop here
+        if (cur.querySelector?.('a[href^="/c/"]')) break; // hit chat container — bail
+        if (!_isSafe(cur)) break;
+        if (cur.querySelectorAll('a,button').length > 6) break; // too large
+        if (getComputedStyle(cur).cursor === 'pointer') { row = cur; break; }
       }
     }
     if (!row || !_isSafe(row)) return null;
-    // Extra guard: don't hide large containers that wrap multiple sidebar sections
     if (row.querySelectorAll('a,button').length > 6) return null;
     const icon = row.querySelector('svg') || row.querySelector('img');
     return { native: row, label: text, icon };
@@ -2474,7 +2479,7 @@ setTimeout(() => {
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.3.9 ready');
+    console.log('[CGPT+] v3.3.10 ready');
   });
 }, 150);
 
