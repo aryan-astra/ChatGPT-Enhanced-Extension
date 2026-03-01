@@ -1,5 +1,5 @@
 // ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.8
+// ChatGPT Enhanced - content.js  v3.3.9
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -796,10 +796,7 @@ function setupCompactSidebar() {
       background:${tipBg};color:${tipClr};border:1px solid ${tipBdr};border-radius:5px;
       padding:2px 8px;font-size:11px;font-weight:500;pointer-events:none;opacity:0;
       transition:opacity .12s,transform .12s;z-index:10000;box-shadow:0 3px 10px rgba(0,0,0,.18);font-family:inherit}
-    .cgpt-grid-btn:hover .cgpt-tip{opacity:1;transform:translateX(-50%) translateY(0)}
-    nav[aria-label]{row-gap:0!important;gap:0!important}
-    nav [role="complementary"]{padding-bottom:0!important;margin-bottom:0!important}
-    nav [role="complementary"]>*{margin-bottom:0!important}`;
+    .cgpt-grid-btn:hover .cgpt-tip{opacity:1;transform:translateX(-50%) translateY(0)}`;
 
   const grid = document.createElement('div'); grid.id = 'cgpt-icon-grid';
   ITEMS.forEach(({ native, label, icon }) => {
@@ -2477,7 +2474,7 @@ setTimeout(() => {
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.3.8 ready');
+    console.log('[CGPT+] v3.3.9 ready');
   });
 }, 150);
 
