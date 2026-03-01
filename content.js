@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.4.2
+// ChatGPT Enhanced - content.js  v3.4.3
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -1721,22 +1721,28 @@ function _onNav() {
   requestAnimationFrame(() => {
     try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] nav compactSidebar:', e); }
     try { if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); } } catch (e) { console.warn('[CGPT+] nav dateGroups:', e); }
-    requestAnimationFrame(() => {
-      try { if (_s.modelBadge) setupModelBadge(true); } catch (e) { console.warn('[CGPT+] nav modelBadge:', e); }
-      try {
-        if (_s.contextBar || _s.contextWarning) {
-          if (_s.contextBar) _getOrCreateCtxBar();
-          // Always teardown first — the old observer may be on a detached <main>
-          _teardownCtxRefreshObserver();
-          const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-          if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
-          else _renderCtxBar();
-        }
-      } catch (e) { console.warn('[CGPT+] nav contextBar:', e); }
-      try { if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn(); } catch {}
-      try { if (_s.bulkActions) injectCheckboxes(); } catch (e) { console.warn('[CGPT+] nav bulkActions:', e); }
-    });
   });
+  // Use setTimeout instead of a second nested rAF for DOM-mutating work.
+  // Nested rAF fires before paint while React may still be running layout
+  // effects — our DOM mutations then land mid-commit, corrupting the fiber tree.
+  // setTimeout(0) is a fresh macrotask, completely outside React's render cycle.
+  setTimeout(() => {
+    try { if (_s.modelBadge) setupModelBadge(true); } catch (e) { console.warn('[CGPT+] nav modelBadge:', e); }
+    try {
+      if (_s.contextBar || _s.contextWarning) {
+        if (_s.contextBar) _getOrCreateCtxBar();
+        // Always teardown first — the old observer may be on a detached <main>
+        _teardownCtxRefreshObserver();
+        const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+        if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
+        else _renderCtxBar();
+      }
+    } catch (e) { console.warn('[CGPT+] nav contextBar:', e); }
+    try { if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn(); } catch {}
+    // Use _schedInject() not injectCheckboxes() directly — _schedInject uses
+    // setTimeout(0) internally, guaranteeing we're outside React's commit phase.
+    try { if (_s.bulkActions) _schedInject(); } catch (e) { console.warn('[CGPT+] nav bulkActions:', e); }
+  }, 150);
 }
 
 // URL polling replaces history.pushState patching — see comment above.
@@ -1774,11 +1780,13 @@ function _apply(key) {
       else            teardownVirtualization();
       break;
     case 'bulkActions':
-      if (_s.bulkActions) { injectCheckboxes(); break; }
+      if (_s.bulkActions) { _schedInject(); break; }
       document.querySelectorAll('.cgpt-cb').forEach(cb => cb.remove());
       document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
-        link.style.removeProperty('position'); link.style.removeProperty('overflow'); link.style.removeProperty('padding-left');
-        link.classList.remove('cgpt-bulk-item');
+        // Do NOT call removeProperty — position/overflow/padding-left are CSS
+        // class rules now, not inline styles. Calling removeProperty on React-
+        // managed elements triggers React's style reconciliation error path.
+        link.classList.remove('cgpt-bulk-item', 'cgpt-cb-checked');
         delete link.dataset.cgptItem; delete link.dataset.cgptId; delete link.dataset.cgptIndex;
       });
       document.getElementById('cgpt-action-bar')?.remove();
@@ -1878,7 +1886,7 @@ setTimeout(() => {
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.4.2 ready');
+    console.log('[CGPT+] v3.4.3 ready');
   });
 }, 150);
 
