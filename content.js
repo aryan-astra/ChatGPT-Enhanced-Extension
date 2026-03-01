@@ -1,5 +1,5 @@
 // ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.4
+// ChatGPT Enhanced - content.js  v3.3.5
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -697,7 +697,11 @@ function setupCompactSidebar() {
     if (a.textContent.toLowerCase().includes('new chat')) { newChatA = a; break; }
   }
   if (!newChatA) return;
-  Array.from(newChatA.children).forEach((ch, i) => { if (i > 0) ch.style.setProperty('display', 'none', 'important'); });
+  // Only hide label/text children — never hide SVG icons or structural elements.
+  Array.from(newChatA.children).forEach((ch, i) => {
+    if (i > 0 && (ch.tagName === 'SPAN' || ch.tagName === 'DIV' || ch.tagName === 'P'))
+      ch.style.setProperty('display', 'none', 'important');
+  });
 
   const sidebar = newChatA.closest('[role="complementary"]') || newChatA.parentElement;
   if (!sidebar) return;
@@ -706,30 +710,53 @@ function setupCompactSidebar() {
   const sidebarNav = sidebar.closest('[role="navigation"]') || sidebar.parentElement || null;
   const qRoot = sidebarNav || document.body;
 
+  // Safety guard: never hide an element that contains chat links — that would
+  // wipe the entire chat history from view if ChatGPT's DOM structure changes.
+  function _isSafe(row) {
+    if (!row) return false;
+    if (row.querySelector('a[href^="/c/"]')) return false; // contains chat links
+    if (row === document.body || row === document.documentElement) return false;
+    return true;
+  }
+
   function findByHref(href) {
     const a = qRoot.querySelector(`a[href="${href}"]`);
     if (!a) return null;
     const icon = a.querySelector('svg') || a.querySelector('img');
-    // TreeWalker on text nodes only — avoids spreading a full NodeList array
     const tw2 = document.createTreeWalker(a, NodeFilter.SHOW_TEXT, {
       acceptNode: n => n.textContent.trim() && !n.parentElement.closest('svg') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
     });
     const tn2 = tw2.nextNode();
     const leaf = tn2 ? { textContent: tn2.textContent.trim() } : null;
+    // Prefer [data-sidebar-item] wrapper; fall back to the <a> itself (safe — it's just one link)
     const row  = a.closest('[data-sidebar-item]') || a;
+    if (!_isSafe(row)) return null;
     return { native: row, label: leaf?.textContent.trim() || href.slice(1), icon };
   }
 
-  // TreeWalker only visits text nodes — avoids scanning every element
+  // TreeWalker only visits text nodes — avoids scanning every element.
+  // Walk up a MAX of 4 levels from the text node and stop at the first element
+  // that does NOT contain chat links. If no safe container is found, bail.
   function findByText(text) {
     const tw = document.createTreeWalker(qRoot, NodeFilter.SHOW_TEXT, {
       acceptNode: n => n.textContent.trim() === text ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
     });
     const tn = tw.nextNode();
     if (!tn) return null;
-    const el  = tn.parentElement;
-    const row = el?.closest('[data-sidebar-item]') || el?.parentElement?.parentElement || el?.parentElement;
-    const icon = row?.querySelector('svg') || row?.querySelector('img');
+    let el = tn.parentElement;
+    // Try closest semantic wrapper first
+    let row = el?.closest('[data-sidebar-item]');
+    if (!row) {
+      // Walk up at most 4 levels looking for a small, safe container
+      let cur = el;
+      for (let i = 0; i < 4 && cur && cur !== qRoot; i++) {
+        cur = cur.parentElement;
+        if (cur && cur !== qRoot && _isSafe(cur)) { row = cur; }
+        else if (cur && cur.querySelector?.('a[href^="/c/"]')) { break; } // hit a chat-containing ancestor — stop
+      }
+    }
+    if (!row || !_isSafe(row)) return null;
+    const icon = row.querySelector('svg') || row.querySelector('img');
     return { native: row, label: text, icon };
   }
 
