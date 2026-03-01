@@ -1,5 +1,5 @@
-// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.10
+﻿// ===========================================================================
+// ChatGPT Enhanced - content.js  v3.4.0
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -207,33 +207,6 @@ function observeMessages() {
 // ---------------------------------------------------------------------------
 let _selectedIds = new Set();
 let _lastCb      = null;
-let _lockedIds    = new Set();
-let _encryptedIds = new Set(); // subset of _lockedIds: chats with full Base64 encryption enabled
-let _vaultOpen   = false;
-let _vaultTimer  = 0;
-const VAULT_IDLE_MS = 30 * 60 * 1000; // 30 minutes idle before auto-lock
-let _vaultIdleListenerAttached = false;
-
-function _resetVaultIdleTimer() {
-  clearTimeout(_vaultTimer);
-  if (_vaultOpen) _vaultTimer = setTimeout(_closeVault, VAULT_IDLE_MS);
-}
-function _onVaultActivity(e) {
-  const t = e.target;
-  if (t && (t.id === 'prompt-textarea' || t.matches?.('[contenteditable="true"]'))) _resetVaultIdleTimer();
-}
-function _startVaultIdleListener() {
-  if (_vaultIdleListenerAttached) return;
-  _vaultIdleListenerAttached = true;
-  document.addEventListener('keydown', _onVaultActivity, true);
-  document.addEventListener('input', _onVaultActivity, true);
-}
-function _stopVaultIdleListener() {
-  if (!_vaultIdleListenerAttached) return;
-  _vaultIdleListenerAttached = false;
-  document.removeEventListener('keydown', _onVaultActivity, true);
-  document.removeEventListener('input', _onVaultActivity, true);
-}
 
 function _cbShow(cb, checked, hover = false) {
   const v = checked || hover;
@@ -305,14 +278,6 @@ function injectCheckboxes() {
       _renderActionBar();
     });
     link.insertBefore(cb, link.firstChild);
-    // Lock indicator — purely visual; locking is done via the action bar Lock button
-    _ensureLockCss();
-    const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
-    lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
-    lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
-    if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
-    if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
-    link.appendChild(lkBtn);
     n++;
   });
   if (n) {
@@ -389,12 +354,9 @@ function _renderActionBar() {
     // Button row — all buttons flex-equal so they fill the full width neatly
     const btnRow = document.createElement('div');
     Object.assign(btnRow.style, { display:'flex', gap:'5px' });
-    const lockBtn = _mkBtn('Lock', () => _bulkLock());
-    lockBtn.id = 'cgpt-lock-btn';
     btnRow.append(
       _mkBtn('All',     () => _selectAll()),
       _mkBtn('None',    () => _deselectAll()),
-      lockBtn,
       _mkBtn('Archive', () => _bulkAction('archive')),
       _mkBtn('Delete',  () => _bulkAction('delete'), true)
     );
@@ -409,12 +371,6 @@ function _renderActionBar() {
     Object.assign(b.style, { background: danger ? '#c0392b' : btnB, color: danger ? '#fff' : clr, border:`1px solid ${danger ? 'transparent' : bdr}` });
   });
   document.getElementById('cgpt-count').textContent = `${_selectedIds.size} selected`;
-  // Update Lock/Unlock label based on current selection state
-  const lockBtn = document.getElementById('cgpt-lock-btn');
-  if (lockBtn) {
-    const allLocked = _selectedIds.size > 0 && [..._selectedIds].every(id => _lockedIds.has(id));
-    lockBtn.textContent = allLocked ? 'Unlock' : 'Lock';
-  }
 }
 
 function _mkBtn(label, fn, danger = false) {
@@ -430,129 +386,6 @@ function _mkBtn(label, fn, danger = false) {
 // ---------------------------------------------------------------------------
 // BULK API
 // ---------------------------------------------------------------------------
-
-// Mode-picker shown before locking — lets the user choose Hide-only vs Encrypt+Hide.
-// Returns 'hide' | 'encrypt' | null (cancelled).
-function _vaultModeModal(count) {
-  return new Promise(resolve => {
-    const dark = isDark();
-    const overlay = document.createElement('div');
-    Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.65)', zIndex:'1000002', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
-    const box = document.createElement('div');
-    Object.assign(box.style, { background: dark ? '#1a1a1e' : '#fff', color: dark ? '#ececec' : '#111', borderRadius:'18px', padding:'26px 26px 20px', width:'min(390px,92vw)', boxShadow:'0 24px 64px rgba(0,0,0,.55)', display:'flex', flexDirection:'column', gap:'13px' });
-    const ttl = document.createElement('div'); ttl.style.cssText = 'font-weight:700;font-size:15px';
-    ttl.textContent = `Lock ${count} chat${count > 1 ? 's' : ''}`;
-    const sub = document.createElement('div'); sub.style.cssText = 'font-size:11.5px;opacity:.45;margin-top:-5px';
-    sub.textContent = 'Choose a protection level:';
-    const opts = [
-      { id:'hide',
-        emoji:'🔒',
-        label:'Hide only',
-        desc:'Chats disappear from your sidebar and are hidden by PIN. Your messages are still stored normally on ChatGPT\u2019s servers \u2014 someone who logs into your account on another device can still read them.',
-        badge:null },
-      { id:'encrypt',
-        emoji:'🔐',
-        label:'Encrypt + Hide',
-        desc:'Every message is Base64-encoded before it ever reaches ChatGPT. On any other device \u2014 mobile, another browser \u2014 the chat shows only unreadable gibberish. Real messages are decoded exclusively by this extension. Maximum privacy.',
-        badge:'Best privacy' }
-    ];
-    let chosen = 'hide';
-    const optWrap = document.createElement('div'); optWrap.style.cssText = 'display:flex;flex-direction:column;gap:8px';
-    const cards = opts.map(o => {
-      const card = document.createElement('button');
-      card.dataset.opt = o.id;
-      Object.assign(card.style, { display:'flex', alignItems:'flex-start', gap:'12px', padding:'12px 13px', border: dark ? '1.5px solid rgba(255,255,255,.1)' : '1.5px solid rgba(0,0,0,.09)', borderRadius:'12px', background:'none', cursor:'pointer', fontFamily:'inherit', color: dark ? '#ececec' : '#111', textAlign:'left', transition:'border-color .12s,background .12s', width:'100%' });
-      const em = document.createElement('span'); em.textContent = o.emoji; em.style.cssText = 'font-size:20px;flex-shrink:0;margin-top:1px';
-      const tw = document.createElement('div'); tw.style.cssText = 'display:flex;flex-direction:column;gap:3px;flex:1';
-      const lr = document.createElement('div'); lr.style.cssText = 'display:flex;align-items:center;gap:7px';
-      const lbl = document.createElement('span'); lbl.textContent = o.label; lbl.style.cssText = 'font-weight:600;font-size:13px'; lr.appendChild(lbl);
-      if (o.badge) { const bk = document.createElement('span'); bk.textContent = o.badge; bk.style.cssText = 'font-size:9px;font-weight:700;padding:1px 6px;border-radius:20px;background:#10a37f;color:#fff;letter-spacing:.04em'; lr.appendChild(bk); }
-      const dc = document.createElement('span'); dc.textContent = o.desc; dc.style.cssText = 'font-size:11px;opacity:.48;line-height:1.5';
-      tw.append(lr, dc); card.append(em, tw);
-      return card;
-    });
-    function markCard(id) {
-      chosen = id;
-      cards.forEach(c => { const a = c.dataset.opt === id; c.style.borderColor = a ? '#10a37f' : (dark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.09)'); c.style.background = a ? (dark ? 'rgba(16,163,127,.12)' : 'rgba(16,163,127,.07)') : 'none'; });
-    }
-    cards.forEach(c => { c.addEventListener('click', () => markCard(c.dataset.opt)); optWrap.appendChild(c); });
-    markCard('hide');
-    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:2px';
-    const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'Cancel';
-    Object.assign(cancelBtn.style, { background:'none', color: dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)', border:'none', fontSize:'13px', cursor:'pointer', fontFamily:'inherit', padding:'8px 14px', borderRadius:'8px' });
-    cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
-    const lockBtn = document.createElement('button'); lockBtn.textContent = 'Lock';
-    Object.assign(lockBtn.style, { background:'#10a37f', color:'#fff', border:'none', borderRadius:'9px', padding:'8px 20px', fontSize:'13px', fontWeight:'600', cursor:'pointer', fontFamily:'inherit' });
-    lockBtn.onclick = () => { overlay.remove(); resolve(chosen); };
-    row.append(cancelBtn, lockBtn);
-    box.append(ttl, sub, optWrap, row);
-    overlay.appendChild(box); document.body.appendChild(overlay);
-    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(null); } });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') { overlay.remove(); resolve(null); } }, { once: true });
-    setTimeout(() => lockBtn.focus(), 30);
-  });
-}
-
-// Lock or unlock all currently selected chats via the action bar.
-async function _bulkLock() {
-  if (!_selectedIds.size || !_extCtxOk()) return;
-  const selected = [..._selectedIds];
-  const allLocked = selected.every(id => _lockedIds.has(id));
-
-  if (allLocked) {
-    // Unlock all selected — verify PIN once
-    let stored;
-    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
-    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-    if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
-    selected.forEach(id => {
-      _lockedIds.delete(id);
-      _encryptedIds.delete(id);
-      const link = document.querySelector(`a[data-cgpt-id="${id}"]`);
-      if (!link) return;
-      link.style.removeProperty('display');
-      delete link.dataset.cgptLocked;
-      delete link.dataset.cgptEncrypted;
-      const lk = link.querySelector('.cgpt-lock-icon');
-      if (lk) { lk.classList.remove('cgpt-is-locked', 'cgpt-is-encrypted'); lk.title = ''; }
-    });
-  } else {
-    // Ask user which protection level they want
-    const newCount = selected.filter(id => !_lockedIds.has(id)).length;
-    const mode = await _vaultModeModal(newCount || selected.length);
-    if (!mode) return;
-    // Set PIN once if needed
-    let stored;
-    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
-    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-    if (!stored) {
-      const pin = await _vaultPinModal('set'); if (!pin) return;
-      const hash = await _hashPin(pin);
-      try { await _storeSet({ cgpt_pin_hash: hash }); }
-      catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-    }
-    selected.forEach(id => {
-      if (_lockedIds.has(id)) return;
-      _lockedIds.add(id);
-      if (mode === 'encrypt') _encryptedIds.add(id);
-      const link = document.querySelector(`a[data-cgpt-id="${id}"]`);
-      if (!link) return;
-      link.dataset.cgptLocked = '1';
-      if (mode === 'encrypt') link.dataset.cgptEncrypted = '1';
-      const lk = link.querySelector('.cgpt-lock-icon');
-      if (lk) {
-        lk.classList.add('cgpt-is-locked');
-        if (mode === 'encrypt') { lk.classList.add('cgpt-is-encrypted'); lk.title = 'Encrypted'; }
-        else { lk.title = 'Hidden'; }
-      }
-      if (!_vaultOpen) link.style.setProperty('display', 'none', 'important');
-    });
-  }
-  try { await _storeSet({ cgpt_locked_ids: [..._lockedIds], cgpt_encrypted_ids: [..._encryptedIds] }); }
-  catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-  _renderVaultHeader();
-  _renderActionBar();
-}
 
 async function _selectAll() {
   if (!_extCtxOk()) return;
@@ -1055,7 +888,7 @@ function _showCtxWarn() {
 
 // Parse SSE stream: update context bar in real-time (throttled), render finally at [DONE]
 let _sseTick = 0; // timestamp of last real-time render
-async function _parseSSE(stream, encChatId) {
+async function _parseSSE(stream) {
   const reader = stream.getReader();
   const dec    = new TextDecoder();
   let buf = '', lastUsage = null, done_flag = false;
@@ -1077,10 +910,7 @@ async function _parseSSE(stream, encChatId) {
               const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
               if (chatId) setTimeout(() => _fetchCtxData(chatId), 600);
             }
-            // Decrypt assistant reply and restore user message text for encrypted chats
-            if (encChatId && _encryptedIds.has(encChatId)) {
-              setTimeout(() => { _decryptAll(); _restoreUserDisplay(); }, 500);
-            }
+
           }
           continue;
         }
@@ -1114,7 +944,6 @@ function _installFetchInterceptor() {
     const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
     // NOTE: content scripts run in an isolated JS world. This patched window.fetch
     // only intercepts fetches made by our own extension code, NOT ChatGPT's page.
-    // Outgoing encryption is handled via the DOM send interceptor (_setupSendInterceptor).
     // Tee only the streaming POST for context bar SSE parsing (best-effort).
     const res = await _orig.call(this, input, init);
     if ((init?.method || 'GET').toUpperCase() === 'POST'
@@ -1122,9 +951,8 @@ function _installFetchInterceptor() {
         && !url.includes('?')
         && res.body) {
       try {
-        const chatIdForSse = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
         const [b1, b2] = res.body.tee();
-        _parseSSE(b2, chatIdForSse);
+        _parseSSE(b2);
         return new Response(b1, { status: res.status, statusText: res.statusText, headers: res.headers });
       } catch {}
     }
@@ -1444,464 +1272,6 @@ function teardownDateGroups() {
   document.getElementById('cgpt-dg-css')?.remove();
 }
 
-// ---------------------------------------------------------------------------
-// FEATURE 9 — Chat Vault (PIN-protected locked chats)
-// ---------------------------------------------------------------------------
-
-function _ensureLockCss() {
-  if (document.getElementById('cgpt-lock-css')) return;
-  const s = document.createElement('style'); s.id = 'cgpt-lock-css';
-  // Lock icon is a static visual indicator only — no pointer-events.
-  // It becomes visible (amber) only when the chat is locked (cgpt-is-locked).
-  s.textContent = `
-    .cgpt-lock-icon{position:absolute;right:34px;top:50%;transform:translateY(-50%);
-      display:flex;align-items:center;justify-content:center;
-      width:18px;height:18px;border-radius:4px;
-      opacity:0;pointer-events:none;
-      transition:opacity .12s;z-index:100;color:#f59e0b;}
-    .cgpt-lock-icon.cgpt-is-locked{opacity:1 !important;}
-    .cgpt-lock-icon.cgpt-is-encrypted{opacity:1 !important;color:#3b82f6 !important;}`;
-  document.head.appendChild(s);
-}
-
-async function _hashPin(pin) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-}
-
-function _vaultPinModal(mode) {
-  return new Promise(resolve => {
-    const dark = isDark();
-    const overlay = document.createElement('div');
-    Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.65)', zIndex:'1000001', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
-    const box = document.createElement('div');
-    Object.assign(box.style, { background: dark ? '#1a1a1e' : '#fff', color: dark ? '#ececec' : '#111', borderRadius:'18px', padding:'32px 28px 24px', width:'min(300px,92vw)', boxShadow:'0 24px 64px rgba(0,0,0,.55)', display:'flex', flexDirection:'column', gap:'16px', textAlign:'center', alignItems:'center' });
-    const title = document.createElement('div'); title.style.cssText = 'font-weight:700;font-size:17px;margin-top:4px';
-    title.textContent = mode === 'set' ? 'Create Vault PIN' : 'Vault Locked';
-    const sub = document.createElement('div'); sub.style.cssText = 'font-size:12px;opacity:.5;margin-top:-8px;line-height:1.5';
-    sub.textContent = mode === 'set' ? 'Choose a 4-digit PIN to protect your locked chats' : 'Enter 4-digit PIN to access your locked chats';
-
-    function makeDots(label) {
-      const wrap = document.createElement('div'); wrap.style.cssText = 'width:100%';
-      if (label) { const l = document.createElement('div'); l.textContent = label; l.style.cssText = 'font-size:11px;opacity:.4;margin-bottom:8px;text-align:left'; wrap.appendChild(l); }
-      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:10px;justify-content:center';
-      const inps = [];
-      for (let i = 0; i < 4; i++) {
-        const inp = document.createElement('input');
-        inp.type='password'; inp.maxLength=1; inp.inputMode='numeric'; inp.pattern='[0-9]';
-        Object.assign(inp.style, { width:'48px', height:'54px', border: dark ? '1.5px solid rgba(255,255,255,.18)' : '1.5px solid rgba(0,0,0,.18)', borderRadius:'11px', background: dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)', color: dark ? '#fff' : '#111', fontSize:'24px', fontWeight:'700', textAlign:'center', outline:'none', caretColor:'transparent', fontFamily:'inherit', transition:'border-color .15s,box-shadow .15s' });
-        inp.addEventListener('focus', () => { inp.style.borderColor='#10a37f'; inp.style.boxShadow='0 0 0 3px rgba(16,163,127,.2)'; });
-        inp.addEventListener('blur',  () => { inp.style.borderColor = dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)'; inp.style.boxShadow='none'; });
-        inp.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g,'').slice(-1); if (e.target.value && i < 3) inps[i+1].focus(); if (inps.every(x => x.value)) setTimeout(() => submitBtn.click(), 60); });
-        inp.addEventListener('keydown', e => { if (e.key==='Backspace' && !inp.value && i>0) { inps[i-1].value=''; inps[i-1].focus(); } if (e.key==='Escape') { overlay.remove(); resolve(null); } });
-        inps.push(inp); row.appendChild(inp);
-      }
-      wrap.appendChild(row);
-      return { wrap, inps };
-    }
-
-    const { wrap: d1, inps: pin1 } = makeDots(mode === 'set' ? 'PIN' : null);
-    let pin2 = null, d2 = null;
-    if (mode === 'set') { const r = makeDots('Confirm PIN'); d2 = r.wrap; pin2 = r.inps; }
-
-    const errMsg = document.createElement('div'); errMsg.style.cssText = 'color:#ef4444;font-size:12px;min-height:14px;width:100%;text-align:center';
-    const submitBtn = document.createElement('button');
-    submitBtn.textContent = mode === 'set' ? 'Set PIN' : 'Unlock';
-    Object.assign(submitBtn.style, { background:'#10a37f', color:'#fff', border:'none', borderRadius:'11px', padding:'12px', fontSize:'14px', fontWeight:'600', cursor:'pointer', fontFamily:'inherit', width:'100%', transition:'opacity .1s' });
-    submitBtn.addEventListener('mouseenter', () => submitBtn.style.opacity='.85');
-    submitBtn.addEventListener('mouseleave', () => submitBtn.style.opacity='1');
-    submitBtn.addEventListener('click', async () => {
-      const pin = pin1.map(x=>x.value).join('');
-      if (pin.length < 4) { errMsg.textContent='Enter all 4 digits'; return; }
-      if (mode === 'set') {
-        const conf = pin2.map(x=>x.value).join('');
-        if (conf.length < 4) { errMsg.textContent='Confirm your PIN'; return; }
-        if (pin !== conf) { errMsg.textContent='PINs do not match'; pin1.forEach(x=>x.value=''); pin2.forEach(x=>x.value=''); pin1[0].focus(); return; }
-        overlay.remove(); resolve(pin);
-      } else {
-        const hash = await _hashPin(pin);
-        const stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash;
-        if (hash === stored) { overlay.remove(); resolve(pin); }
-        else { errMsg.textContent='Incorrect PIN'; pin1.forEach(x=>x.value=''); pin1[0].focus(); }
-      }
-    });
-    const cancelBtn = document.createElement('button'); cancelBtn.textContent='Cancel';
-    Object.assign(cancelBtn.style, { background:'none', color: dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)', border:'none', fontSize:'13px', cursor:'pointer', fontFamily:'inherit' });
-    cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
-    box.append(title, sub, d1);
-    if (d2) box.append(d2);
-    box.append(errMsg, submitBtn, cancelBtn);
-    overlay.appendChild(box); document.body.appendChild(overlay);
-    overlay.addEventListener('click', e => { if (e.target===overlay) { overlay.remove(); resolve(null); } });
-    setTimeout(() => pin1[0].focus(), 60);
-  });
-}
-
-async function _toggleLockChat(chatId, link) {
-  if (_lockedIds.has(chatId)) {
-    // Already locked — verify PIN before unlocking
-    let stored;
-    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
-    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-    if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
-    _lockedIds.delete(chatId);
-    _encryptedIds.delete(chatId);
-    link.style.removeProperty('display');
-    delete link.dataset.cgptLocked;
-    delete link.dataset.cgptEncrypted;
-    const lk = link.querySelector('.cgpt-lock-icon');
-    if (lk) { lk.classList.remove('cgpt-is-locked', 'cgpt-is-encrypted'); lk.title = ''; }
-  } else {
-    // Not locked — set PIN if first time, then lock
-    let stored;
-    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
-    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-    if (!stored) {
-      const pin = await _vaultPinModal('set'); if (!pin) return;
-      const hash = await _hashPin(pin);
-      try { await _storeSet({ cgpt_pin_hash: hash }); }
-      catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-    }
-    _lockedIds.add(chatId);
-    link.dataset.cgptLocked = '1';
-    const lk = link.querySelector('.cgpt-lock-icon');
-    if (lk) { lk.classList.add('cgpt-is-locked'); lk.title = 'Hidden'; }
-    if (!_vaultOpen) link.style.setProperty('display','none','important');
-  }
-  try { await _storeSet({ cgpt_locked_ids: [..._lockedIds], cgpt_encrypted_ids: [..._encryptedIds] }); }
-  catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-  _renderVaultHeader();
-}
-
-let _vaultHdrRetry = 0;
-function _renderVaultHeader() {
-  const count = _lockedIds.size;
-  let hdr = document.getElementById('cgpt-vault-hdr');
-
-  // Find the correct sidebar nav — use closest('nav') from a real sidebar link
-  // so we don't accidentally pick up a different <nav> on the page.
-  const firstLink = document.querySelector(CONFIG.sel.sidebarLink);
-  const navEl = firstLink?.closest('nav') ?? document.querySelector('nav[aria-label]') ?? document.querySelector('nav');
-  if (!navEl) {
-    hdr?.remove();
-    if (_vaultHdrRetry < 5) { _vaultHdrRetry++; setTimeout(_renderVaultHeader, 600); }
-    return;
-  }
-  _vaultHdrRetry = 0;
-
-  if (!hdr) {
-    hdr = document.createElement('button'); hdr.id = 'cgpt-vault-hdr';
-    const dark = isDark();
-    Object.assign(hdr.style, {
-      display:'flex', alignItems:'center', gap:'8px', width:'100%',
-      padding:'8px 14px', margin:'0', border:'none',
-      borderBottom: dark ? '1px solid rgba(255,255,255,.07)' : '1px solid rgba(0,0,0,.07)',
-      background:'none', cursor:'pointer', fontFamily:'inherit',
-      color: dark ? '#c9cdd4' : '#4b5563', fontSize:'12px', fontWeight:'600',
-      textAlign:'left', boxSizing:'border-box', transition:'background .12s',
-      flexShrink:'0'
-    });
-    hdr.addEventListener('mouseenter', () => hdr.style.background = isDark() ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.04)');
-    hdr.addEventListener('mouseleave', () => hdr.style.background = 'none');
-    hdr.addEventListener('click', _openVault);
-
-    // Insert between logo-header row and the icons area (New chat, Search, etc.).
-    // Use firstLink.closest('nav') so we always get the correct sidebar nav even
-    // when multiple <nav> elements exist on the page.
-    // The <aside> element inside nav is the icons/New-chat section (implicit role
-    // "complementary") — inserting before it puts vault between logo row and icons.
-    try {
-      const asideEl = navEl.querySelector('aside') || navEl.querySelector('[role="complementary"]');
-      let refNode = asideEl;
-      while (refNode && refNode.parentElement !== navEl) refNode = refNode.parentElement;
-      navEl.insertBefore(hdr, refNode ?? null);
-    } catch (_) {
-      navEl.appendChild(hdr);
-    }
-  }
-
-  const lckSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" style="flex-shrink:0;opacity:.5"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
-  const encCount  = _encryptedIds.size;
-  const hideCount = count - encCount;
-  const detailParts = [];
-  if (encCount  > 0) detailParts.push(`${encCount} encrypted`);
-  if (hideCount > 0) detailParts.push(`${hideCount} hidden`);
-  const statusTxt = count === 0
-    ? 'select chats to lock them'
-    : (_vaultOpen ? 'open \u2014 click to lock' : (detailParts.join(' \u00b7 ') + ' \u2014 click to unlock'));
-  hdr.innerHTML = `${lckSvg}<span style="flex:1">Hidden Chats${count ? ' \u00b7 '+count : ''}</span><span style="font-size:10px;opacity:.35;font-weight:400">${statusTxt}</span>`;
-}
-
-async function _openVault() {
-  if (!_lockedIds.size) return;
-  if (_vaultOpen) { _closeVault(); return; }
-  const stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash;
-  if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
-  _vaultOpen = true;
-  document.querySelectorAll('[data-cgpt-locked="1"]').forEach(l => l.style.removeProperty('display'));
-  _renderVaultHeader();
-  _resetVaultIdleTimer();
-  _startVaultIdleListener();
-}
-
-function _closeVault() {
-  _vaultOpen = false; clearTimeout(_vaultTimer);
-  _stopVaultIdleListener();
-  document.querySelectorAll('[data-cgpt-locked="1"]').forEach(l => l.style.setProperty('display','none','important'));
-  _renderVaultHeader();
-}
-
-async function setupVault() {
-  let data;
-  try { data = await _storeGet(['cgpt_locked_ids', 'cgpt_encrypted_ids']); }
-  catch (e) { if (_isCtxErr(e)) _killScript(); return; }
-  _lockedIds    = new Set(data.cgpt_locked_ids    || []);
-  _encryptedIds = new Set(data.cgpt_encrypted_ids || []);
-  _ensureLockCss();
-  if (_lockedIds.size) {
-    document.querySelectorAll(CONFIG.sel.sidebarLink).forEach(link => {
-      const id = extractId(link.getAttribute('href'));
-      if (!id || !_lockedIds.has(id)) return;
-      link.dataset.cgptLocked = '1';
-      if (_encryptedIds.has(id)) link.dataset.cgptEncrypted = '1';
-      if (!_vaultOpen) link.style.setProperty('display','none','important');
-      const lk = link.querySelector('.cgpt-lock-icon');
-      if (lk) {
-        lk.classList.add('cgpt-is-locked');
-        if (_encryptedIds.has(id)) { lk.classList.add('cgpt-is-encrypted'); lk.title = 'Encrypted'; }
-        else { lk.title = 'Hidden'; }
-      }
-    });
-  }
-  _renderVaultHeader();
-}
-
-// ---------------------------------------------------------------------------
-// FEATURE 11 — Vault Encryption (Base64 channel for locked chats)
-// ---------------------------------------------------------------------------
-// ARCHITECTURE NOTE:
-// Chrome MV3 content scripts run in an ISOLATED JavaScript world. Patching
-// window.fetch in a content script only intercepts the extension's OWN fetches,
-// not the ChatGPT page's requests. We therefore intercept outgoing messages at
-// the DOM level (capture-phase listeners on the send button and Enter key),
-// encode the textarea content before React reads it, then re-fire the event.
-// Incoming replies are decoded via a MutationObserver on the assistant message
-// elements as they are added to the DOM.
-// ---------------------------------------------------------------------------
-
-// chat IDs that have already received the one-time encryption primer this session
-const _cgptEncPrimed = new Set();
-// pending {chatId, original, encoded} entries — lets us restore displayed user text
-const _cgptEncQueue  = [];
-// last encoded output — used as a safety guard against the re-encoding loop
-let _lastEncOut = '';
-
-// UTF-8–safe Base64 encode / decode
-function _b64Enc(str) {
-  try { return btoa(unescape(encodeURIComponent(str))); }
-  catch { return btoa(str); }
-}
-function _b64Dec(str) {
-  try { return decodeURIComponent(escape(atob(str.replace(/\s+/g, '')))); }
-  catch { return null; }
-}
-// Returns true only when a string is a plausible Base64 block:
-// valid charset, length is multiple of 4, long enough to be a real message.
-function _looksBase64(str) {
-  const s = str.replace(/\s+/g, '');
-  return s.length >= 8 && /^[A-Za-z0-9+/]+=*$/.test(s) && s.length % 4 === 0;
-}
-
-// Encode a user message for transmission. Prepends a compact one-time primer on
-// the first message of a locked chat so the model knows to reply only in Base64.
-// Guard: if the text is our own encoded output (re-encoding loop), return as-is.
-function _encOutgoing(text, chatId) {
-  // Safety guard — prevent the recursive re-encoding loop. If the textarea
-  // already contains our last encoded output, bail immediately.
-  if (text === _lastEncOut) return text;
-  const b64 = _b64Enc(text);
-  _cgptEncQueue.push({ chatId, original: text, encoded: b64 });
-  if (_cgptEncPrimed.has(chatId)) { _lastEncOut = b64; return b64; }
-  _cgptEncPrimed.add(chatId);
-  // Compact primer — saves ~300 tokens vs the original verbose version.
-  // ACK is Base64('ACK') = 'QUNL' instead of a long sentence.
-  const ack = _b64Enc('ACK');
-  const result = (
-    `[ENC] My messages are Base64-encoded. Decode to read. ` +
-    `Reply ONLY as a single Base64 string—no labels, no markdown, nothing else. ` +
-    `Confirm: ${ack}\n\n` + b64
-  );
-  _lastEncOut = result;
-  return result;
-}
-
-// Attempt to decrypt a single assistant message <div> and show plain text.
-// Leaves the element completely untouched if it is not valid Base64.
-function _decryptMsgEl(el) {
-  if (el.dataset.cgptDec) return;
-  // ChatGPT renders message text into a .markdown / prose div
-  const prose = el.querySelector('.markdown, [class*="prose"], [class*="markdown"]')
-                 || el.querySelector('[data-message-content]')
-                 || el;
-  const raw = prose.innerText?.trim() ?? '';
-  if (!raw || raw.length < 8) return;
-  // Strategy: try the whole text (whitespace stripped), then scan lines
-  // last-to-first (model sometimes prepends a short preamble line).
-  let decoded = null;
-  const full = raw.replace(/\s+/g, '');
-  if (_looksBase64(full)) decoded = _b64Dec(full);
-  if (!decoded) {
-    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (_looksBase64(lines[i])) { decoded = _b64Dec(lines[i]); break; }
-    }
-  }
-  if (!decoded) return; // not Base64 — leave untouched
-  el.dataset.cgptDec = '1';
-  const overlay = document.createElement('div');
-  overlay.dataset.cgptDecOverlay = '1';
-  overlay.style.cssText = 'white-space:pre-wrap;word-break:break-word;line-height:1.75';
-  overlay.textContent = decoded;
-  prose.style.setProperty('display', 'none', 'important');
-  el.insertBefore(overlay, prose);
-}
-
-// Scan and decrypt all undecrypted assistant messages in the current encrypted chat.
-function _decryptAll() {
-  const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-  if (!chatId || !_encryptedIds.has(chatId)) return;
-  document.querySelectorAll('[data-message-author-role="assistant"]:not([data-cgpt-dec])').forEach(_decryptMsgEl);
-  if (_cgptEncQueue.length) _restoreUserDisplay();
-}
-
-// After a user message was encoded before sending, its DOM node shows Base64.
-// Find it and overlay the original readable text on top.
-function _restoreUserDisplay() {
-  if (!_cgptEncQueue.length) return;
-  const userEls = [...document.querySelectorAll('div[data-message-author-role="user"]')];
-  // iterate a copy so splices don't skip items
-  [..._cgptEncQueue].forEach((item, qi) => {
-    const el = userEls.find(e =>
-      !e.dataset.cgptDecUser &&
-      (e.innerText?.trim() === item.encoded || e.innerText?.includes(item.encoded))
-    );
-    if (!el) return;
-    el.dataset.cgptDecUser = '1';
-    const overlay = document.createElement('div');
-    overlay.dataset.cgptDecOverlay = '1';
-    overlay.style.cssText = 'white-space:pre-wrap;word-break:break-word';
-    overlay.textContent = item.original;
-    // Hide only the direct prose descendant so layout is preserved
-    const prose = el.querySelector('[class*="prose"], [class*="whitespace"]') || el;
-    if (prose !== el) {
-      prose.style.setProperty('display', 'none', 'important');
-      el.insertBefore(overlay, prose);
-    } else {
-      el.insertBefore(overlay, el.firstChild);
-    }
-    _cgptEncQueue.splice(qi, 1);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// DOM-level send interceptor — encodes textarea content in capture phase.
-// Content scripts run in an isolated JS world, so window.fetch patching only
-// intercepts the extension's own fetches, not ChatGPT's page requests.
-// We intercept at the DOM level: capture-phase listeners fire before React,
-// we encode the text via execCommand (which triggers React's input events),
-// then re-fire the original send event so React submits the encoded value.
-// ---------------------------------------------------------------------------
-let _cgptSendInProgress = false;
-
-function _setupSendInterceptor() {
-  if (window._cgptSendHooked) return;
-  window._cgptSendHooked = true;
-
-  const _encode = (e) => {
-    if (_cgptSendInProgress) return;
-    const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-    if (!chatId || !_encryptedIds.has(chatId)) return;
-    const ta = document.getElementById('prompt-textarea')
-             || document.querySelector('div[contenteditable="true"][aria-label]')
-             || document.querySelector('div[contenteditable="true"]');
-    if (!ta) return;
-    const text = (ta.innerText || ta.textContent || '').trim();
-    if (!text) return;
-
-    e.stopImmediatePropagation();
-    e.preventDefault();
-
-    const encoded = _encOutgoing(text, chatId);
-    // execCommand triggers React's native input-event chain so React's
-    // internal fiber state updates to the encoded value synchronously.
-    ta.focus();
-    document.execCommand('selectAll', false, null);
-    document.execCommand('insertText', false, encoded);
-
-    _cgptSendInProgress = true;
-    // Ensure decrypt observer is active for this encrypted chat
-    _setupDecryptObserver();
-    requestAnimationFrame(() => {
-      // CRITICAL: keep _cgptSendInProgress=true DURING dispatch. dispatchEvent
-      // is synchronous — the capture-phase listener fires inline. If the flag
-      // were already false the listener would re-enter _encode(), read the
-      // now-encoded textarea, and encode it AGAIN — creating an infinite loop
-      // that grows the text exponentially until the tab crashes.
-      if (e.type === 'click') {
-        (e.target.closest('button') || document.querySelector('[data-testid="send-button"]'))?.click();
-      } else {
-        ta.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-          bubbles: true, cancelable: true
-        }));
-      }
-      _cgptSendInProgress = false;
-    });
-  };
-
-  document.addEventListener('click', e => {
-    if (e.target.closest('[data-testid="send-button"]')) _encode(e);
-  }, true);
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey
-        && e.target.closest('#prompt-textarea, [contenteditable="true"]')) _encode(e);
-  }, true);
-}
-
-// MutationObserver on <main> — decrypts assistant messages as they appear in the DOM.
-let _decryptObs = null;
-let _decryptRetryTimer = 0;
-
-function _runDecryptScan() {
-  const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-  if (!chatId || !_encryptedIds.has(chatId)) return;
-  // Use broad selector — ChatGPT may use <div> or <article> wrappers
-  const sel = '[data-message-author-role="assistant"]:not([data-cgpt-dec])';
-  document.querySelectorAll(sel).forEach(_decryptMsgEl);
-  if (_cgptEncQueue.length) _restoreUserDisplay();
-}
-
-function _setupDecryptObserver() {
-  if (_decryptObs) return;
-  _decryptObs = new MutationObserver(() => {
-    _runDecryptScan();
-    // Debounced retry — during streaming, the Base64 text is incomplete.
-    // After mutations stop (stream end), this fires to catch the final text.
-    clearTimeout(_decryptRetryTimer);
-    _decryptRetryTimer = setTimeout(_runDecryptScan, 1500);
-  });
-  const target = document.querySelector('main') || document.body;
-  _decryptObs.observe(target, { childList: true, subtree: true, characterData: true });
-}
-
-function _teardownDecryptObserver() {
-  clearTimeout(_decryptRetryTimer);
-  _decryptObs?.disconnect();
-  _decryptObs = null;
-}
-
-// ---------------------------------------------------------------------------
 // TOP-BAR EXPORT BUTTON — inline button in the banner (right side)
 // ---------------------------------------------------------------------------
 function _getOrCreateExportBtn() {
@@ -2242,7 +1612,7 @@ function _schedInject() {
   if (_riInject) return; _riInject = true;
   requestAnimationFrame(() => {
     _riInject = false;
-    if (!_dead && _s.bulkActions) { injectCheckboxes(); _renderVaultHeader(); }
+    if (!_dead && _s.bulkActions) injectCheckboxes();
   });
 }
 function _schedObserve() {
@@ -2333,16 +1703,7 @@ function _onNav() {
         }
       } catch (e) { console.warn('[CGPT+] nav contextBar:', e); }
       try { if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn(); } catch {}
-      try { if (_s.bulkActions) { injectCheckboxes(); setupVault(); } } catch (e) { console.warn('[CGPT+] nav bulkActions:', e); }
-      try {
-        const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-        if (_navId && _encryptedIds.has(_navId)) {
-          _setupDecryptObserver();
-          setTimeout(_decryptAll, 900);
-        } else {
-          _teardownDecryptObserver();
-        }
-      } catch (e) { console.warn('[CGPT+] nav decrypt:', e); }
+      try { if (_s.bulkActions) injectCheckboxes(); } catch (e) { console.warn('[CGPT+] nav bulkActions:', e); }
     });
   });
 }
@@ -2382,7 +1743,7 @@ function _apply(key) {
       else            teardownVirtualization();
       break;
     case 'bulkActions':
-      if (_s.bulkActions) { injectCheckboxes(); _renderVaultHeader(); break; }
+      if (_s.bulkActions) { injectCheckboxes(); break; }
       document.querySelectorAll('.cgpt-cb').forEach(cb => cb.remove());
       document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
         link.style.removeProperty('position'); link.style.removeProperty('overflow'); link.style.removeProperty('padding-left');
@@ -2463,10 +1824,7 @@ setTimeout(() => {
     // Top-bar export button on chat pages
     if (location.pathname.match(/\/c\//)) setTimeout(() => { try { _getOrCreateExportBtn(); } catch {} }, 500);
     // Non-critical — defer to idle so we don't block first paint
-    // Always install the fetch interceptor — needed for vault encryption
-    // even when contextBar/contextWarning are both off.
     try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
-    try { _setupSendInterceptor(); } catch (e) { console.warn('[CGPT+] sendInterceptor:', e); }
     // Nav detector uses URL polling — does NOT patch history.pushState.
     try { _installNavDetector(); } catch (e) { console.warn('[CGPT+] navDetector:', e); }
     // Start MutationObserver NOW (after settings load) — not at parse time.
@@ -2474,12 +1832,12 @@ setTimeout(() => {
     // React-managed DOM mid-reconciliation, corrupting the fiber tree.
     try { _mutObs.observe(document.body, { childList: true, subtree: true }); } catch (e) { console.warn('[CGPT+] mutObs:', e); }
     _idle(() => {
-      try { if (_s.bulkActions)    { injectCheckboxes(); setupVault(); } } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
+      try { if (_s.bulkActions)    injectCheckboxes(); } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
       try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] compactSidebar init:', e); }
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.3.10 ready');
+    console.log('[CGPT+] v3.4.0 ready');
   });
 }, 150);
 
