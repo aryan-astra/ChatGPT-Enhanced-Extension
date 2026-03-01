@@ -1,5 +1,5 @@
 // ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.6
+// ChatGPT Enhanced - content.js  v3.3.7
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -2289,10 +2289,19 @@ const _mutObs = new MutationObserver(mutations => {
   }
   } catch (e) { console.warn('[CGPT+] observer error:', e); }
 });
-_mutObs.observe(document.body, { childList: true, subtree: true });
+// NOTE: _mutObs.observe() is called inside the boot callback, NOT here.
+// Starting the observer at parse time fires during React's hydration flood,
+// causing injectCheckboxes() to modify React-managed DOM mid-reconciliation.
 
 // ---------------------------------------------------------------------------
-// SPA NAVIGATION
+// SPA NAVIGATION DETECTOR
+// We do NOT patch history.pushState / replaceState at all.
+// Reason: content scripts run at document_idle, BEFORE ChatGPT's JS bundle
+// finishes loading. Capturing history.pushState at that point gives us the
+// *native* function — before React Router wraps it. Calling that native
+// version later bypasses React Router entirely, freezing the page.
+// Instead we poll location.pathname every 750ms. This is imperceptible to
+// users and is the standard pattern used by browser extensions.
 // ---------------------------------------------------------------------------
 function _onNav() {
   _sbBgCache = null;
@@ -2333,29 +2342,29 @@ function _onNav() {
   });
 }
 
-const _origPush    = history.pushState.bind(history);
-const _origReplace = history.replaceState.bind(history);
-
-function _installNavHooks() {
-  // CRITICAL: use setTimeout(0) so ChatGPT's own pushState/popstate handlers
-  // always run first. Calling _onNav() synchronously (inline with their call)
-  // blocked React's router from settling, causing the infinite loading spinner.
-  history.pushState = function (...a) {
-    _origPush(...a);
-    setTimeout(_onNav, 0);
-  };
-  // replaceState fires for URL-param-only changes (e.g. ?model= updates).
-  // We do NOT trigger a full _onNav — just refresh the context bar if needed.
-  history.replaceState = function (...a) {
-    _origReplace(...a);
+// URL polling replaces history.pushState patching — see comment above.
+let _lastNavPath = '';
+function _installNavDetector() {
+  _lastNavPath = location.pathname;
+  // Poll every 750ms — imperceptible lag, zero impact on ChatGPT's router.
+  setInterval(() => {
+    if (_dead) return;
+    const cur = location.pathname;
+    if (cur === _lastNavPath) return;
+    _lastNavPath = cur;
+    // Refresh context bar on any URL change (even same-chat param changes)
     if (_s.contextBar || _s.contextWarning) {
-      setTimeout(() => {
-        const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-        if (id) _fetchCtxData(id); else { _ctxToks = 0; _renderCtxBar(); }
-      }, 0);
+      const id = cur.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+      if (id) _fetchCtxData(id); else { _ctxToks = 0; _renderCtxBar(); }
     }
-  };
-  window.addEventListener('popstate', () => setTimeout(_onNav, 0), { passive: true });
+    // Full nav refresh — run after a short delay so React has settled
+    setTimeout(_onNav, 120);
+  }, 750);
+  // popstate (browser back/forward) doesn't need polling
+  window.addEventListener('popstate', () => {
+    _lastNavPath = location.pathname;
+    setTimeout(_onNav, 120);
+  }, { passive: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -2453,16 +2462,19 @@ setTimeout(() => {
     // even when contextBar/contextWarning are both off.
     try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
     try { _setupSendInterceptor(); } catch (e) { console.warn('[CGPT+] sendInterceptor:', e); }
-    // Install SPA nav hooks AFTER settings are loaded so _s is populated.
-    // These run with setTimeout(0) deferred _onNav so ChatGPT's own handlers fire first.
-    try { _installNavHooks(); } catch (e) { console.warn('[CGPT+] navHooks:', e); }
+    // Nav detector uses URL polling — does NOT patch history.pushState.
+    try { _installNavDetector(); } catch (e) { console.warn('[CGPT+] navDetector:', e); }
+    // Start MutationObserver NOW (after settings load) — not at parse time.
+    // Firing during React hydration caused injectCheckboxes() to mutate the
+    // React-managed DOM mid-reconciliation, corrupting the fiber tree.
+    try { _mutObs.observe(document.body, { childList: true, subtree: true }); } catch (e) { console.warn('[CGPT+] mutObs:', e); }
     _idle(() => {
       try { if (_s.bulkActions)    { injectCheckboxes(); setupVault(); } } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
       try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] compactSidebar init:', e); }
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.3.6 ready');
+    console.log('[CGPT+] v3.3.7 ready');
   });
 }, 150);
 
