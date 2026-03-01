@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.4.0
+// ChatGPT Enhanced - content.js  v3.4.1
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -461,6 +461,12 @@ async function _bulkAction(action) {
         try { r = await fetch(`${CONFIG.api.conversationBase}${id}`, { method:'PATCH', headers:{ ...h, 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
         catch (e) { if (_isCtxErr(e)) { _killScript(); return; } break; }
         if (r.ok || r.status === 202) ok = true;
+        else if (r.status === 401) {
+          // Token refreshed — evict the in-memory cache so the next getHeaders() call
+          // re-reads the updated token from storage, then retry immediately.
+          _hdrCache = null;
+          try { h = await getHeaders(); } catch (e) { if (_isCtxErr(e)) { _killScript(); return; } }
+        }
         else if (r.status === 429) {
           backoff *= 2;
           try { await sleep(backoff + Math.random() * 200); } catch (e) { if (_isCtxErr(e)) { _killScript(); return; } }
@@ -970,7 +976,12 @@ async function _fetchCtxData(chatId, retries = 2) {
     try { r = await fetch(`${CONFIG.api.conversationBase}${chatId}`, Object.keys(h).length ? { headers: h } : undefined); }
     catch (e) { if (_isCtxErr(e)) _killScript(); return; }
     if (!_extCtxOk()) return;
-    if (r.status === 401 && retries > 0) { setTimeout(() => { if (!_dead) _fetchCtxData(chatId, retries - 1); }, 3000); return; }
+    if (r.status === 401 && retries > 0) {
+      // Token may have rotated — evict the cache so the retry reads a fresh one
+      _hdrCache = null;
+      setTimeout(() => { if (!_dead) _fetchCtxData(chatId, retries - 1); }, 3000);
+      return;
+    }
     if (!r.ok) return;
     let data;
     try { data = await r.json(); } catch (e) { if (_isCtxErr(e)) _killScript(); return; }
@@ -1029,6 +1040,7 @@ function setupContextBar() {
 }
 
 function teardownContextBar() {
+  cancelAnimationFrame(_ctxRenderRaf); _ctxRenderRaf = 0;
   document.getElementById('cgpt-ctx-bar')?.remove();
   document.getElementById('cgpt-ctx-warn')?.remove();
   document.getElementById('cgpt-ctx-popover')?.remove();
@@ -1679,10 +1691,15 @@ const _mutObs = new MutationObserver(mutations => {
 // users and is the standard pattern used by browser extensions.
 // ---------------------------------------------------------------------------
 function _onNav() {
-  _sbBgCache = null;
-  _ctxToks   = 0;
-  _ctxFiles  = 0;
-  _ctxModel  = '';
+  _sbBgCache  = null;
+  _hdrCache   = null;        // evict stale auth token — ChatGPT refreshes tokens transparently
+  _ctxToks    = 0;
+  _ctxFiles   = 0;
+  _ctxModel   = '';
+  // Release stale selection state and DOM reference from previous page
+  _selectedIds.clear();
+  _lastCb = null;
+  document.getElementById('cgpt-action-bar')?.remove();
   document.getElementById('cgpt-ctx-bar')?.remove();
   document.getElementById('cgpt-ctx-warn')?.remove();
   document.getElementById('cgpt-ctx-popover')?.remove();
@@ -1697,9 +1714,11 @@ function _onNav() {
       try {
         if (_s.contextBar || _s.contextWarning) {
           if (_s.contextBar) _getOrCreateCtxBar();
+          // Always teardown first — the old observer may be on a detached <main>
+          _teardownCtxRefreshObserver();
           const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
           if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
-          else { _teardownCtxRefreshObserver(); _renderCtxBar(); }
+          else _renderCtxBar();
         }
       } catch (e) { console.warn('[CGPT+] nav contextBar:', e); }
       try { if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn(); } catch {}
@@ -1824,7 +1843,12 @@ setTimeout(() => {
     // Top-bar export button on chat pages
     if (location.pathname.match(/\/c\//)) setTimeout(() => { try { _getOrCreateExportBtn(); } catch {} }, 500);
     // Non-critical — defer to idle so we don't block first paint
-    try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
+    // Fetch interceptor only needed when context bar/warning is enabled.
+    // setupContextBar() installs it lazily, so we only call it here when
+    // those features are already on at boot; otherwise it's a no-op.
+    if (_s.contextBar || _s.contextWarning) {
+      try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
+    }
     // Nav detector uses URL polling — does NOT patch history.pushState.
     try { _installNavDetector(); } catch (e) { console.warn('[CGPT+] navDetector:', e); }
     // Start MutationObserver NOW (after settings load) — not at parse time.
@@ -1832,12 +1856,17 @@ setTimeout(() => {
     // React-managed DOM mid-reconciliation, corrupting the fiber tree.
     try { _mutObs.observe(document.body, { childList: true, subtree: true }); } catch (e) { console.warn('[CGPT+] mutObs:', e); }
     _idle(() => {
+      // One-time migration: purge storage keys left over from the removed Vault feature.
+      // These keys occupy sync/local quota for no reason once vault code is gone.
+      try {
+        chrome.storage.local.remove(['cgpt_locked_ids', 'cgpt_encrypted_ids', 'cgpt_pin_hash']);
+      } catch {}
       try { if (_s.bulkActions)    injectCheckboxes(); } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
       try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] compactSidebar init:', e); }
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.4.0 ready');
+    console.log('[CGPT+] v3.4.1 ready');
   });
 }, 150);
 
