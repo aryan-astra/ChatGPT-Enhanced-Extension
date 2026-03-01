@@ -127,6 +127,6 @@ a.cgpt-bulk-item:hover .cgpt-cb {
    These are generic divs whose direct child has aria-label="Control".
    :has() is supported in Chrome 105+.
    --------------------------------------------------------------------------- */
-[role="complementary"] *:has(> [aria-label="Control"]) {
+nav [role="complementary"] *:has(> [aria-label="Control"]) {
   display: none !important;
 }

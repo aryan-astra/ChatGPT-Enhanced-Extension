@@ -1,5 +1,5 @@
 // ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.3
+// ChatGPT Enhanced - content.js  v3.3.4
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -767,9 +767,9 @@ function setupCompactSidebar() {
       padding:2px 8px;font-size:11px;font-weight:500;pointer-events:none;opacity:0;
       transition:opacity .12s,transform .12s;z-index:10000;box-shadow:0 3px 10px rgba(0,0,0,.18);font-family:inherit}
     .cgpt-grid-btn:hover .cgpt-tip{opacity:1;transform:translateX(-50%) translateY(0)}
-    [role="navigation"]{row-gap:0!important;gap:0!important}
-    [role="complementary"]{padding-bottom:0!important;margin-bottom:0!important}
-    [role="complementary"]>*{margin-bottom:0!important}`;
+    nav[aria-label]{row-gap:0!important;gap:0!important}
+    nav [role="complementary"]{padding-bottom:0!important;margin-bottom:0!important}
+    nav [role="complementary"]>*{margin-bottom:0!important}`;
 
   const grid = document.createElement('div'); grid.id = 'cgpt-icon-grid';
   ITEMS.forEach(({ native, label, icon }) => {
@@ -784,17 +784,8 @@ function setupCompactSidebar() {
   });
   ncBlock.insertAdjacentElement('afterend', grid);
 
-  if (qRoot !== document.body) {
-    for (const ch of [...qRoot.children]) {
-      if (!ch || ch === sidebar || ch.contains(sidebar)) continue;
-      if (ch.querySelector?.('a[href^="/c/"]')) continue;
-      if (!ch.children.length) continue;
-      if ([...ch.children].every(c => c.dataset.cgptGridHidden === '1')) {
-        ch.style.setProperty('display', 'none', 'important');
-        ch.dataset.cgptContainerHidden = '1';
-      }
-    }
-  }
+  // Container-hiding removed — individual items are already hidden and hiding
+  // parent containers risks breaking page layout when ChatGPT updates their DOM.
   // No secondary MutationObserver — _mutObs already detects icon-grid removal.
 }
 
@@ -2239,6 +2230,7 @@ function _schedSidebar() {
 }
 
 const _mutObs = new MutationObserver(mutations => {
+  try {
   if (_dead) { _mutObs.disconnect(); return; }
   for (const mut of mutations) {
     for (const node of mut.addedNodes) {
@@ -2268,6 +2260,7 @@ const _mutObs = new MutationObserver(mutations => {
       }
     }
   }
+  } catch (e) { console.warn('[CGPT+] observer error:', e); }
 });
 _mutObs.observe(document.body, { childList: true, subtree: true });
 
@@ -2286,27 +2279,29 @@ function _onNav() {
   delete window._cgptGridRetried;
 
   requestAnimationFrame(() => {
-    if (_s.compactSidebar) setupCompactSidebar();
-    if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); }
+    try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] nav compactSidebar:', e); }
+    try { if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); } } catch (e) { console.warn('[CGPT+] nav dateGroups:', e); }
     requestAnimationFrame(() => {
-      if (_s.modelBadge) setupModelBadge(true);
-      if (_s.contextBar || _s.contextWarning) {
-        if (_s.contextBar) _getOrCreateCtxBar();
-        const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-        if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
-        else { _teardownCtxRefreshObserver(); _renderCtxBar(); }
-      }
-      // Top-bar export button (always available on chat pages)
-      if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn();
-      if (_s.bulkActions) { injectCheckboxes(); setupVault(); }
-      // Decrypt observer: active only when viewing an encrypted chat
-      const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-      if (_navId && _encryptedIds.has(_navId)) {
-        _setupDecryptObserver();
-        setTimeout(_decryptAll, 900);
-      } else {
-        _teardownDecryptObserver();
-      }
+      try { if (_s.modelBadge) setupModelBadge(true); } catch (e) { console.warn('[CGPT+] nav modelBadge:', e); }
+      try {
+        if (_s.contextBar || _s.contextWarning) {
+          if (_s.contextBar) _getOrCreateCtxBar();
+          const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+          if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
+          else { _teardownCtxRefreshObserver(); _renderCtxBar(); }
+        }
+      } catch (e) { console.warn('[CGPT+] nav contextBar:', e); }
+      try { if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn(); } catch {}
+      try { if (_s.bulkActions) { injectCheckboxes(); setupVault(); } } catch (e) { console.warn('[CGPT+] nav bulkActions:', e); }
+      try {
+        const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+        if (_navId && _encryptedIds.has(_navId)) {
+          _setupDecryptObserver();
+          setTimeout(_decryptAll, 900);
+        } else {
+          _teardownDecryptObserver();
+        }
+      } catch (e) { console.warn('[CGPT+] nav decrypt:', e); }
     });
   });
 }
@@ -2410,23 +2405,24 @@ setTimeout(() => {
     if (!_extCtxOk()) return; // context died before we got storage data
     _s = { ...DEFAULT_SETTINGS, ...stored };
     // Critical path — run immediately (affect visible content)
-    if (_s.lagFix)     setupVirtualization();
-    if (_s.modelBadge) setupModelBadge();
-    if (_s.contextBar || _s.contextWarning) setupContextBar();
+    // Each feature is isolated so one failure doesn't break the rest.
+    try { if (_s.lagFix)     setupVirtualization(); } catch (e) { console.warn('[CGPT+] lagFix init:', e); }
+    try { if (_s.modelBadge) setupModelBadge(); } catch (e) { console.warn('[CGPT+] modelBadge init:', e); }
+    try { if (_s.contextBar || _s.contextWarning) setupContextBar(); } catch (e) { console.warn('[CGPT+] contextBar init:', e); }
     // Top-bar export button on chat pages
-    if (location.pathname.match(/\/c\//)) setTimeout(_getOrCreateExportBtn, 500);
+    if (location.pathname.match(/\/c\//)) setTimeout(() => { try { _getOrCreateExportBtn(); } catch {} }, 500);
     // Non-critical — defer to idle so we don't block first paint
     // Always install the fetch interceptor — needed for vault encryption
     // even when contextBar/contextWarning are both off.
-    _installFetchInterceptor();
-    _setupSendInterceptor();
+    try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
+    try { _setupSendInterceptor(); } catch (e) { console.warn('[CGPT+] sendInterceptor:', e); }
     _idle(() => {
-      if (_s.bulkActions)    { injectCheckboxes(); setupVault(); }
-      if (_s.compactSidebar) setupCompactSidebar();
-      if (_s.dateGroups)     setupDateGroups();
+      try { if (_s.bulkActions)    { injectCheckboxes(); setupVault(); } } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
+      try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] compactSidebar init:', e); }
+      try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.3.3 ready');
+    console.log('[CGPT+] v3.3.4 ready');
   });
 }, 150);
 
