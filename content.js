@@ -1,5 +1,5 @@
 // ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.5
+// ChatGPT Enhanced - content.js  v3.3.6
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -2335,18 +2335,28 @@ function _onNav() {
 
 const _origPush    = history.pushState.bind(history);
 const _origReplace = history.replaceState.bind(history);
-history.pushState = function (...a) { _origPush(...a); _onNav(); };
-// replaceState fires for URL-param-only changes (e.g. ?model= updates during a chat).
-// We do NOT trigger a full _onNav — just refresh the context bar if needed.
-history.replaceState = function (...a) {
-  _origReplace(...a);
-  if (_s.contextBar || _s.contextWarning) {
-    const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-    if (id) _fetchCtxData(id); else { _ctxToks = 0; _renderCtxBar(); }
-  }
-};
-// passive: true — _onNav never calls preventDefault
-window.addEventListener('popstate', _onNav, { passive: true });
+
+function _installNavHooks() {
+  // CRITICAL: use setTimeout(0) so ChatGPT's own pushState/popstate handlers
+  // always run first. Calling _onNav() synchronously (inline with their call)
+  // blocked React's router from settling, causing the infinite loading spinner.
+  history.pushState = function (...a) {
+    _origPush(...a);
+    setTimeout(_onNav, 0);
+  };
+  // replaceState fires for URL-param-only changes (e.g. ?model= updates).
+  // We do NOT trigger a full _onNav — just refresh the context bar if needed.
+  history.replaceState = function (...a) {
+    _origReplace(...a);
+    if (_s.contextBar || _s.contextWarning) {
+      setTimeout(() => {
+        const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+        if (id) _fetchCtxData(id); else { _ctxToks = 0; _renderCtxBar(); }
+      }, 0);
+    }
+  };
+  window.addEventListener('popstate', () => setTimeout(_onNav, 0), { passive: true });
+}
 
 // ---------------------------------------------------------------------------
 // SETTINGS — instant apply handler
@@ -2443,13 +2453,16 @@ setTimeout(() => {
     // even when contextBar/contextWarning are both off.
     try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
     try { _setupSendInterceptor(); } catch (e) { console.warn('[CGPT+] sendInterceptor:', e); }
+    // Install SPA nav hooks AFTER settings are loaded so _s is populated.
+    // These run with setTimeout(0) deferred _onNav so ChatGPT's own handlers fire first.
+    try { _installNavHooks(); } catch (e) { console.warn('[CGPT+] navHooks:', e); }
     _idle(() => {
       try { if (_s.bulkActions)    { injectCheckboxes(); setupVault(); } } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
       try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] compactSidebar init:', e); }
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.3.4 ready');
+    console.log('[CGPT+] v3.3.6 ready');
   });
 }, 150);
 
