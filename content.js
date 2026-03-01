@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.4.1
+// ChatGPT Enhanced - content.js  v3.4.2
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -219,6 +219,7 @@ function injectCheckboxes() {
     const s = document.createElement('style');
     s.id = 'cgpt-cb-css';
     s.textContent = `
+      .cgpt-bulk-item{position:relative !important;overflow:visible !important;}
       .cgpt-cb{-webkit-appearance:none;appearance:none;position:absolute;left:6px;top:50%;
         transform:translateY(-50%);width:15px;height:15px;margin:0;padding:0;z-index:99;
         cursor:pointer;flex-shrink:0;box-sizing:border-box;
@@ -230,7 +231,8 @@ function injectCheckboxes() {
       .dark .cgpt-cb:checked{background:#19c37d;border-color:#19c37d;}
       .cgpt-cb:checked::after{content:'';display:block;width:4px;height:7px;
         border:1.5px solid #fff;border-top:none;border-left:none;
-        transform:rotate(45deg);position:absolute;top:1px;left:4px;}`;
+        transform:rotate(45deg);position:absolute;top:1px;left:4px;}
+      .cgpt-cb-checked{padding-left:28px !important;}`;
     document.head.appendChild(s);
   }
 
@@ -246,8 +248,10 @@ function injectCheckboxes() {
     link.dataset.cgptId    = chatId;
     link.dataset.cgptIndex = idx;
     link.classList.add('cgpt-bulk-item');
-    link.style.setProperty('position', 'relative', 'important');
-    link.style.setProperty('overflow',  'visible',  'important');
+    // position:relative and overflow:visible are set via .cgpt-bulk-item CSS class,
+    // NOT via inline style — React tracks element.style on its managed nodes and
+    // throws a reconciliation error (undefined via onRecoverableError) if it finds
+    // inline styles it didn’t write. CSS classes are invisible to React’s diffing.
 
     const cb = document.createElement('input');
     cb.type = 'checkbox'; cb.className = 'cgpt-cb';
@@ -273,7 +277,10 @@ function injectCheckboxes() {
         cb.checked ? _selectedIds.add(chatId) : _selectedIds.delete(chatId);
       }
       _cbShow(cb, cb.checked);
-      link.style.setProperty('padding-left', cb.checked ? '28px' : '', 'important');
+      // Toggle CSS class instead of inline style — inline style.setProperty on
+      // React-managed elements causes React reconciliation errors (undefined thrown
+      // from onRecoverableError). CSS class changes are invisible to React's diffing.
+      link.classList.toggle('cgpt-cb-checked', cb.checked);
       _lastCb = cb;
       _renderActionBar();
     });
@@ -291,13 +298,13 @@ function injectCheckboxes() {
         const link = e.target.closest?.('.cgpt-bulk-item');
         if (!link) return;
         const cb = link.querySelector('.cgpt-cb');
-        if (cb) { _cbShow(cb, cb.checked, true); link.style.setProperty('padding-left', '28px', 'important'); }
+        if (cb) { _cbShow(cb, cb.checked, true); link.classList.add('cgpt-cb-checked'); }
       }, { passive: true });
       nav.addEventListener('mouseout', e => {
         const link = e.target.closest?.('.cgpt-bulk-item');
         if (!link || link.contains(e.relatedTarget)) return;
         const cb = link.querySelector('.cgpt-cb');
-        if (cb) { _cbShow(cb, cb.checked, false); if (!cb.checked) link.style.setProperty('padding-left', '', 'important'); }
+        if (cb) { _cbShow(cb, cb.checked, false); if (!cb.checked) link.classList.remove('cgpt-cb-checked'); }
       }, { passive: true });
     }
   }
@@ -1621,11 +1628,16 @@ let _riBadge   = false;
 let _riSidebar = false;
 
 function _schedInject() {
+  // setTimeout(0) puts work in a fresh macrotask — completely outside React’s
+  // synchronous commit phase and layout-effects phase. requestAnimationFrame
+  // fires before paint while React may still be running layout effects,
+  // causing our DOM insertions into React-managed elements to corrupt the
+  // fiber tree (React throws `undefined` via onRecoverableError).
   if (_riInject) return; _riInject = true;
-  requestAnimationFrame(() => {
+  setTimeout(() => {
     _riInject = false;
     if (!_dead && _s.bulkActions) injectCheckboxes();
-  });
+  }, 0);
 }
 function _schedObserve() {
   if (_riObserve) return; _riObserve = true;
@@ -1866,7 +1878,7 @@ setTimeout(() => {
       try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
     });
 
-    console.log('[CGPT+] v3.4.1 ready');
+    console.log('[CGPT+] v3.4.2 ready');
   });
 }, 150);
 
