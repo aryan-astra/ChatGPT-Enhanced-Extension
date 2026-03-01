@@ -122,6 +122,11 @@ a.cgpt-bulk-item:hover .cgpt-cb {
   background: #e04a3a;
 }
 
-/* Keyboard shortcut hint badges are left visible — the :has() selector was
-   removed because it could inadvertently hide elements if ChatGPT restructures
-   their sidebar DOM. The badges are a minor cosmetic element not worth the risk. */
+/* ---------------------------------------------------------------------------
+   Hide keyboard shortcut hint badges in sidebar (Ctrl+K, Ctrl+Shift+O, etc.)
+   These are generic divs whose direct child has aria-label="Control".
+   :has() is supported in Chrome 105+.
+   --------------------------------------------------------------------------- */
+[role="complementary"] *:has(> [aria-label="Control"]) {
+  display: none !important;
+}

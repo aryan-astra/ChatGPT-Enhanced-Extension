@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.4.3
+// ChatGPT Enhanced - content.js  v3.3.0
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -207,6 +207,10 @@ function observeMessages() {
 // ---------------------------------------------------------------------------
 let _selectedIds = new Set();
 let _lastCb      = null;
+let _lockedIds    = new Set();
+let _encryptedIds = new Set(); // subset of _lockedIds: chats with full Base64 encryption enabled
+let _vaultOpen   = false;
+let _vaultTimer  = 0;
 
 function _cbShow(cb, checked, hover = false) {
   const v = checked || hover;
@@ -219,7 +223,6 @@ function injectCheckboxes() {
     const s = document.createElement('style');
     s.id = 'cgpt-cb-css';
     s.textContent = `
-      .cgpt-bulk-item{position:relative !important;overflow:visible !important;}
       .cgpt-cb{-webkit-appearance:none;appearance:none;position:absolute;left:6px;top:50%;
         transform:translateY(-50%);width:15px;height:15px;margin:0;padding:0;z-index:99;
         cursor:pointer;flex-shrink:0;box-sizing:border-box;
@@ -231,8 +234,7 @@ function injectCheckboxes() {
       .dark .cgpt-cb:checked{background:#19c37d;border-color:#19c37d;}
       .cgpt-cb:checked::after{content:'';display:block;width:4px;height:7px;
         border:1.5px solid #fff;border-top:none;border-left:none;
-        transform:rotate(45deg);position:absolute;top:1px;left:4px;}
-      .cgpt-cb-checked{padding-left:28px !important;}`;
+        transform:rotate(45deg);position:absolute;top:1px;left:4px;}`;
     document.head.appendChild(s);
   }
 
@@ -248,10 +250,8 @@ function injectCheckboxes() {
     link.dataset.cgptId    = chatId;
     link.dataset.cgptIndex = idx;
     link.classList.add('cgpt-bulk-item');
-    // position:relative and overflow:visible are set via .cgpt-bulk-item CSS class,
-    // NOT via inline style — React tracks element.style on its managed nodes and
-    // throws a reconciliation error (undefined via onRecoverableError) if it finds
-    // inline styles it didn’t write. CSS classes are invisible to React’s diffing.
+    link.style.setProperty('position', 'relative', 'important');
+    link.style.setProperty('overflow',  'visible',  'important');
 
     const cb = document.createElement('input');
     cb.type = 'checkbox'; cb.className = 'cgpt-cb';
@@ -277,14 +277,19 @@ function injectCheckboxes() {
         cb.checked ? _selectedIds.add(chatId) : _selectedIds.delete(chatId);
       }
       _cbShow(cb, cb.checked);
-      // Toggle CSS class instead of inline style — inline style.setProperty on
-      // React-managed elements causes React reconciliation errors (undefined thrown
-      // from onRecoverableError). CSS class changes are invisible to React's diffing.
-      link.classList.toggle('cgpt-cb-checked', cb.checked);
+      link.style.setProperty('padding-left', cb.checked ? '28px' : '', 'important');
       _lastCb = cb;
       _renderActionBar();
     });
     link.insertBefore(cb, link.firstChild);
+    // Lock indicator — purely visual; locking is done via the action bar Lock button
+    _ensureLockCss();
+    const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
+    lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
+    lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
+    if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
+    if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
+    link.appendChild(lkBtn);
     n++;
   });
   if (n) {
@@ -298,13 +303,13 @@ function injectCheckboxes() {
         const link = e.target.closest?.('.cgpt-bulk-item');
         if (!link) return;
         const cb = link.querySelector('.cgpt-cb');
-        if (cb) { _cbShow(cb, cb.checked, true); link.classList.add('cgpt-cb-checked'); }
+        if (cb) { _cbShow(cb, cb.checked, true); link.style.setProperty('padding-left', '28px', 'important'); }
       }, { passive: true });
       nav.addEventListener('mouseout', e => {
         const link = e.target.closest?.('.cgpt-bulk-item');
         if (!link || link.contains(e.relatedTarget)) return;
         const cb = link.querySelector('.cgpt-cb');
-        if (cb) { _cbShow(cb, cb.checked, false); if (!cb.checked) link.classList.remove('cgpt-cb-checked'); }
+        if (cb) { _cbShow(cb, cb.checked, false); if (!cb.checked) link.style.setProperty('padding-left', '', 'important'); }
       }, { passive: true });
     }
   }
@@ -361,9 +366,12 @@ function _renderActionBar() {
     // Button row — all buttons flex-equal so they fill the full width neatly
     const btnRow = document.createElement('div');
     Object.assign(btnRow.style, { display:'flex', gap:'5px' });
+    const lockBtn = _mkBtn('Lock', () => _bulkLock());
+    lockBtn.id = 'cgpt-lock-btn';
     btnRow.append(
       _mkBtn('All',     () => _selectAll()),
       _mkBtn('None',    () => _deselectAll()),
+      lockBtn,
       _mkBtn('Archive', () => _bulkAction('archive')),
       _mkBtn('Delete',  () => _bulkAction('delete'), true)
     );
@@ -378,6 +386,12 @@ function _renderActionBar() {
     Object.assign(b.style, { background: danger ? '#c0392b' : btnB, color: danger ? '#fff' : clr, border:`1px solid ${danger ? 'transparent' : bdr}` });
   });
   document.getElementById('cgpt-count').textContent = `${_selectedIds.size} selected`;
+  // Update Lock/Unlock label based on current selection state
+  const lockBtn = document.getElementById('cgpt-lock-btn');
+  if (lockBtn) {
+    const allLocked = _selectedIds.size > 0 && [..._selectedIds].every(id => _lockedIds.has(id));
+    lockBtn.textContent = allLocked ? 'Unlock' : 'Lock';
+  }
 }
 
 function _mkBtn(label, fn, danger = false) {
@@ -393,6 +407,129 @@ function _mkBtn(label, fn, danger = false) {
 // ---------------------------------------------------------------------------
 // BULK API
 // ---------------------------------------------------------------------------
+
+// Mode-picker shown before locking — lets the user choose Hide-only vs Encrypt+Hide.
+// Returns 'hide' | 'encrypt' | null (cancelled).
+function _vaultModeModal(count) {
+  return new Promise(resolve => {
+    const dark = isDark();
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.65)', zIndex:'1000002', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
+    const box = document.createElement('div');
+    Object.assign(box.style, { background: dark ? '#1a1a1e' : '#fff', color: dark ? '#ececec' : '#111', borderRadius:'18px', padding:'26px 26px 20px', width:'min(390px,92vw)', boxShadow:'0 24px 64px rgba(0,0,0,.55)', display:'flex', flexDirection:'column', gap:'13px' });
+    const ttl = document.createElement('div'); ttl.style.cssText = 'font-weight:700;font-size:15px';
+    ttl.textContent = `Lock ${count} chat${count > 1 ? 's' : ''}`;
+    const sub = document.createElement('div'); sub.style.cssText = 'font-size:11.5px;opacity:.45;margin-top:-5px';
+    sub.textContent = 'Choose a protection level:';
+    const opts = [
+      { id:'hide',
+        emoji:'🔒',
+        label:'Hide only',
+        desc:'Chats disappear from your sidebar and are hidden by PIN. Your messages are still stored normally on ChatGPT\u2019s servers \u2014 someone who logs into your account on another device can still read them.',
+        badge:null },
+      { id:'encrypt',
+        emoji:'🔐',
+        label:'Encrypt + Hide',
+        desc:'Every message is Base64-encoded before it ever reaches ChatGPT. On any other device \u2014 mobile, another browser \u2014 the chat shows only unreadable gibberish. Real messages are decoded exclusively by this extension. Maximum privacy.',
+        badge:'Best privacy' }
+    ];
+    let chosen = 'hide';
+    const optWrap = document.createElement('div'); optWrap.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+    const cards = opts.map(o => {
+      const card = document.createElement('button');
+      card.dataset.opt = o.id;
+      Object.assign(card.style, { display:'flex', alignItems:'flex-start', gap:'12px', padding:'12px 13px', border: dark ? '1.5px solid rgba(255,255,255,.1)' : '1.5px solid rgba(0,0,0,.09)', borderRadius:'12px', background:'none', cursor:'pointer', fontFamily:'inherit', color: dark ? '#ececec' : '#111', textAlign:'left', transition:'border-color .12s,background .12s', width:'100%' });
+      const em = document.createElement('span'); em.textContent = o.emoji; em.style.cssText = 'font-size:20px;flex-shrink:0;margin-top:1px';
+      const tw = document.createElement('div'); tw.style.cssText = 'display:flex;flex-direction:column;gap:3px;flex:1';
+      const lr = document.createElement('div'); lr.style.cssText = 'display:flex;align-items:center;gap:7px';
+      const lbl = document.createElement('span'); lbl.textContent = o.label; lbl.style.cssText = 'font-weight:600;font-size:13px'; lr.appendChild(lbl);
+      if (o.badge) { const bk = document.createElement('span'); bk.textContent = o.badge; bk.style.cssText = 'font-size:9px;font-weight:700;padding:1px 6px;border-radius:20px;background:#10a37f;color:#fff;letter-spacing:.04em'; lr.appendChild(bk); }
+      const dc = document.createElement('span'); dc.textContent = o.desc; dc.style.cssText = 'font-size:11px;opacity:.48;line-height:1.5';
+      tw.append(lr, dc); card.append(em, tw);
+      return card;
+    });
+    function markCard(id) {
+      chosen = id;
+      cards.forEach(c => { const a = c.dataset.opt === id; c.style.borderColor = a ? '#10a37f' : (dark ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.09)'); c.style.background = a ? (dark ? 'rgba(16,163,127,.12)' : 'rgba(16,163,127,.07)') : 'none'; });
+    }
+    cards.forEach(c => { c.addEventListener('click', () => markCard(c.dataset.opt)); optWrap.appendChild(c); });
+    markCard('hide');
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:2px';
+    const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'Cancel';
+    Object.assign(cancelBtn.style, { background:'none', color: dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)', border:'none', fontSize:'13px', cursor:'pointer', fontFamily:'inherit', padding:'8px 14px', borderRadius:'8px' });
+    cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
+    const lockBtn = document.createElement('button'); lockBtn.textContent = 'Lock';
+    Object.assign(lockBtn.style, { background:'#10a37f', color:'#fff', border:'none', borderRadius:'9px', padding:'8px 20px', fontSize:'13px', fontWeight:'600', cursor:'pointer', fontFamily:'inherit' });
+    lockBtn.onclick = () => { overlay.remove(); resolve(chosen); };
+    row.append(cancelBtn, lockBtn);
+    box.append(ttl, sub, optWrap, row);
+    overlay.appendChild(box); document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(null); } });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') { overlay.remove(); resolve(null); } }, { once: true });
+    setTimeout(() => lockBtn.focus(), 30);
+  });
+}
+
+// Lock or unlock all currently selected chats via the action bar.
+async function _bulkLock() {
+  if (!_selectedIds.size || !_extCtxOk()) return;
+  const selected = [..._selectedIds];
+  const allLocked = selected.every(id => _lockedIds.has(id));
+
+  if (allLocked) {
+    // Unlock all selected — verify PIN once
+    let stored;
+    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
+    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+    if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
+    selected.forEach(id => {
+      _lockedIds.delete(id);
+      _encryptedIds.delete(id);
+      const link = document.querySelector(`a[data-cgpt-id="${id}"]`);
+      if (!link) return;
+      link.style.removeProperty('display');
+      delete link.dataset.cgptLocked;
+      delete link.dataset.cgptEncrypted;
+      const lk = link.querySelector('.cgpt-lock-icon');
+      if (lk) { lk.classList.remove('cgpt-is-locked', 'cgpt-is-encrypted'); lk.title = ''; }
+    });
+  } else {
+    // Ask user which protection level they want
+    const newCount = selected.filter(id => !_lockedIds.has(id)).length;
+    const mode = await _vaultModeModal(newCount || selected.length);
+    if (!mode) return;
+    // Set PIN once if needed
+    let stored;
+    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
+    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+    if (!stored) {
+      const pin = await _vaultPinModal('set'); if (!pin) return;
+      const hash = await _hashPin(pin);
+      try { await _storeSet({ cgpt_pin_hash: hash }); }
+      catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+    }
+    selected.forEach(id => {
+      if (_lockedIds.has(id)) return;
+      _lockedIds.add(id);
+      if (mode === 'encrypt') _encryptedIds.add(id);
+      const link = document.querySelector(`a[data-cgpt-id="${id}"]`);
+      if (!link) return;
+      link.dataset.cgptLocked = '1';
+      if (mode === 'encrypt') link.dataset.cgptEncrypted = '1';
+      const lk = link.querySelector('.cgpt-lock-icon');
+      if (lk) {
+        lk.classList.add('cgpt-is-locked');
+        if (mode === 'encrypt') { lk.classList.add('cgpt-is-encrypted'); lk.title = 'Encrypted'; }
+        else { lk.title = 'Hidden'; }
+      }
+      if (!_vaultOpen) link.style.setProperty('display', 'none', 'important');
+    });
+  }
+  try { await _storeSet({ cgpt_locked_ids: [..._lockedIds], cgpt_encrypted_ids: [..._encryptedIds] }); }
+  catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+  _renderVaultHeader();
+  _renderActionBar();
+}
 
 async function _selectAll() {
   if (!_extCtxOk()) return;
@@ -468,12 +605,6 @@ async function _bulkAction(action) {
         try { r = await fetch(`${CONFIG.api.conversationBase}${id}`, { method:'PATCH', headers:{ ...h, 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
         catch (e) { if (_isCtxErr(e)) { _killScript(); return; } break; }
         if (r.ok || r.status === 202) ok = true;
-        else if (r.status === 401) {
-          // Token refreshed — evict the in-memory cache so the next getHeaders() call
-          // re-reads the updated token from storage, then retry immediately.
-          _hdrCache = null;
-          try { h = await getHeaders(); } catch (e) { if (_isCtxErr(e)) { _killScript(); return; } }
-        }
         else if (r.status === 429) {
           backoff *= 2;
           try { await sleep(backoff + Math.random() * 200); } catch (e) { if (_isCtxErr(e)) { _killScript(); return; } }
@@ -543,11 +674,7 @@ function setupCompactSidebar() {
     if (a.textContent.toLowerCase().includes('new chat')) { newChatA = a; break; }
   }
   if (!newChatA) return;
-  // Only hide label/text children — never hide SVG icons or structural elements.
-  Array.from(newChatA.children).forEach((ch, i) => {
-    if (i > 0 && (ch.tagName === 'SPAN' || ch.tagName === 'DIV' || ch.tagName === 'P'))
-      ch.style.setProperty('display', 'none', 'important');
-  });
+  Array.from(newChatA.children).forEach((ch, i) => { if (i > 0) ch.style.setProperty('display', 'none', 'important'); });
 
   const sidebar = newChatA.closest('[role="complementary"]') || newChatA.parentElement;
   if (!sidebar) return;
@@ -556,61 +683,30 @@ function setupCompactSidebar() {
   const sidebarNav = sidebar.closest('[role="navigation"]') || sidebar.parentElement || null;
   const qRoot = sidebarNav || document.body;
 
-  // Safety guard: never hide an element that contains chat links — that would
-  // wipe the entire chat history from view if ChatGPT's DOM structure changes.
-  function _isSafe(row) {
-    if (!row) return false;
-    if (row.querySelector('a[href^="/c/"]')) return false; // contains chat links
-    if (row === document.body || row === document.documentElement) return false;
-    return true;
-  }
-
   function findByHref(href) {
     const a = qRoot.querySelector(`a[href="${href}"]`);
     if (!a) return null;
     const icon = a.querySelector('svg') || a.querySelector('img');
+    // TreeWalker on text nodes only — avoids spreading a full NodeList array
     const tw2 = document.createTreeWalker(a, NodeFilter.SHOW_TEXT, {
       acceptNode: n => n.textContent.trim() && !n.parentElement.closest('svg') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
     });
     const tn2 = tw2.nextNode();
     const leaf = tn2 ? { textContent: tn2.textContent.trim() } : null;
-    // Prefer [data-sidebar-item] wrapper; fall back to the <a> itself (safe — it's just one link)
     const row  = a.closest('[data-sidebar-item]') || a;
-    if (!_isSafe(row)) return null;
     return { native: row, label: leaf?.textContent.trim() || href.slice(1), icon };
   }
 
-  // TreeWalker only visits text nodes — avoids scanning every element.
-  // Walk up looking for the nearest element with cursor:pointer — that is the
-  // actual interactive target (e.g. the search button wrapper, the Projects
-  // button). Stopping at cursor:pointer ensures we hide the right element AND
-  // that native.click() triggers the correct action.
+  // TreeWalker only visits text nodes — avoids scanning every element
   function findByText(text) {
     const tw = document.createTreeWalker(qRoot, NodeFilter.SHOW_TEXT, {
       acceptNode: n => n.textContent.trim() === text ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
     });
     const tn = tw.nextNode();
     if (!tn) return null;
-    let el = tn.parentElement;
-    // Try closest semantic wrapper first
-    let row = el?.closest('[data-sidebar-item]');
-    if (!row) {
-      // Walk up to 5 levels; target the nearest cursor:pointer ancestor
-      // (the actual interactive element). Stop immediately on chat-link
-      // containers or elements that are too large to safely hide.
-      let cur = el;
-      for (let i = 0; i < 5 && cur && cur !== qRoot; i++) {
-        cur = cur.parentElement;
-        if (!cur || cur === qRoot) break;
-        if (cur.querySelector?.('a[href^="/c/"]')) break; // hit chat container — bail
-        if (!_isSafe(cur)) break;
-        if (cur.querySelectorAll('a,button').length > 6) break; // too large
-        if (getComputedStyle(cur).cursor === 'pointer') { row = cur; break; }
-      }
-    }
-    if (!row || !_isSafe(row)) return null;
-    if (row.querySelectorAll('a,button').length > 6) return null;
-    const icon = row.querySelector('svg') || row.querySelector('img');
+    const el  = tn.parentElement;
+    const row = el?.closest('[data-sidebar-item]') || el?.parentElement?.parentElement || el?.parentElement;
+    const icon = row?.querySelector('svg') || row?.querySelector('img');
     return { native: row, label: text, icon };
   }
 
@@ -647,7 +743,10 @@ function setupCompactSidebar() {
       background:${tipBg};color:${tipClr};border:1px solid ${tipBdr};border-radius:5px;
       padding:2px 8px;font-size:11px;font-weight:500;pointer-events:none;opacity:0;
       transition:opacity .12s,transform .12s;z-index:10000;box-shadow:0 3px 10px rgba(0,0,0,.18);font-family:inherit}
-    .cgpt-grid-btn:hover .cgpt-tip{opacity:1;transform:translateX(-50%) translateY(0)}`;
+    .cgpt-grid-btn:hover .cgpt-tip{opacity:1;transform:translateX(-50%) translateY(0)}
+    [role="navigation"]{row-gap:0!important;gap:0!important}
+    [role="complementary"]{padding-bottom:0!important;margin-bottom:0!important}
+    [role="complementary"]>*{margin-bottom:0!important}`;
 
   const grid = document.createElement('div'); grid.id = 'cgpt-icon-grid';
   ITEMS.forEach(({ native, label, icon }) => {
@@ -662,8 +761,17 @@ function setupCompactSidebar() {
   });
   ncBlock.insertAdjacentElement('afterend', grid);
 
-  // Container-hiding removed — individual items are already hidden and hiding
-  // parent containers risks breaking page layout when ChatGPT updates their DOM.
+  if (qRoot !== document.body) {
+    for (const ch of [...qRoot.children]) {
+      if (!ch || ch === sidebar || ch.contains(sidebar)) continue;
+      if (ch.querySelector?.('a[href^="/c/"]')) continue;
+      if (!ch.children.length) continue;
+      if ([...ch.children].every(c => c.dataset.cgptGridHidden === '1')) {
+        ch.style.setProperty('display', 'none', 'important');
+        ch.dataset.cgptContainerHidden = '1';
+      }
+    }
+  }
   // No secondary MutationObserver — _mutObs already detects icon-grid removal.
 }
 
@@ -673,12 +781,10 @@ function setupCompactSidebar() {
 // only through MutationObserver on the button's aria-label, which ChatGPT
 // already updates natively. Zero polling overhead.
 // ---------------------------------------------------------------------------
-const MODEL_RANK = ['o1-mini','4o-mini','gpt-4o-mini','gpt-3.5','4o','gpt-4o','chatgpt-4o','gpt-4','gpt-4-turbo','5','5.2','o1','o1-preview','o3-mini','o4-mini','o3','o4','o3-pro','gpt-5'];
+const MODEL_RANK = ['o1-mini','4o-mini','gpt-4o-mini','4o','gpt-4o','chatgpt-4o','5.2','o1','o3-mini','o3','o3-pro'];
 let _maxRank    = -1;
 let _modelBtnObs = null;
 let _bannerObs   = null;
-let _lastModelBtn = null;   // reference to the last observed model button element
-let _modelPollTimer = 0;    // lightweight poll backstop for model changes
 
 function _modelRank(n) {
   const s = (n || '').toLowerCase();
@@ -740,54 +846,29 @@ function _rebuildBadge(btn) {
   }
 }
 
-function _attachModelBtnObs(btn) {
-  if (_modelBtnObs) _modelBtnObs.disconnect();
-  _lastModelBtn = btn;
-  _modelBtnObs = new MutationObserver(() => _readModel(btn));
-  // Watch attributes (aria-label), children (React re-renders), and text changes
-  _modelBtnObs.observe(btn, { attributes: true, childList: true, subtree: true, characterData: true });
-}
-
 function setupModelBadge(force = false) {
   const btn = document.querySelector(CONFIG.sel.modelBtn);
   if (!btn) return;
   if (force || !document.getElementById('cgpt-model-badge')) _rebuildBadge(btn);
   else _readModel(btn);
 
-  _attachModelBtnObs(btn);
+  if (_modelBtnObs) _modelBtnObs.disconnect();
+  _modelBtnObs = new MutationObserver(() => _readModel(btn));
+  _modelBtnObs.observe(btn, { attributes: true, attributeFilter: ['aria-label'] });
 
   const bannerEl = btn.closest('[role="banner"]') || btn.parentElement;
   if (bannerEl) {
     if (_bannerObs) _bannerObs.disconnect();
     _bannerObs = new MutationObserver(() => {
-      const btn2 = document.querySelector(CONFIG.sel.modelBtn);
-      if (!btn2) return;
-      // If the model button was replaced by React, re-attach observer
-      if (btn2 !== _lastModelBtn) {
-        _attachModelBtnObs(btn2);
-        if (!document.getElementById('cgpt-model-badge')) {
-          requestAnimationFrame(() => _rebuildBadge(btn2));
-        }
+      if (!document.getElementById('cgpt-model-badge')) {
+        requestAnimationFrame(() => {
+          const b2 = document.querySelector(CONFIG.sel.modelBtn);
+          if (b2) _rebuildBadge(b2);
+        });
       }
-      // Always re-read model from the (possibly new) button
-      _readModel(btn2);
     });
-    _bannerObs.observe(bannerEl, { childList: true, subtree: true });
+    _bannerObs.observe(bannerEl, { childList: true, subtree: false });
   }
-
-  // Lightweight poll backstop (every 3s) — catches edge cases where
-  // React silently replaces the button without triggering mutations.
-  clearInterval(_modelPollTimer);
-  _modelPollTimer = setInterval(() => {
-    if (_dead || !_s.modelBadge) { clearInterval(_modelPollTimer); return; }
-    const b = document.querySelector(CONFIG.sel.modelBtn);
-    if (!b) return;
-    if (b !== _lastModelBtn) {
-      _attachModelBtnObs(b);
-      if (!document.getElementById('cgpt-model-badge')) _rebuildBadge(b);
-    }
-    _readModel(b);
-  }, 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -810,11 +891,11 @@ const CTX_WINS = {
   // o1 family
   'o1':200000,'o1-mini':128000,'o1-preview':128000,
   // GPT-4o family
-  'gpt-4o':128000,'4o':128000,'chatgpt-4o':128000,'4o-mini':128000,'gpt-4o-mini':128000,
+  'gpt-4o':128000,'4o':128000,'chatgpt-4o':128000,
   // GPT-4
   'gpt-4-turbo':128000,'gpt-4':128000,
   // Legacy
-  'gpt-3.5':16000,'gpt-3.5-turbo':16000,
+  'gpt-3.5':16000,
 };
 let _ctxWin  = 128000;
 let _ctxToks = 0;
@@ -869,21 +950,15 @@ function _renderCtxBar(immediate = false) {
         lbl.textContent = '…';
       }
     }
-    // File attachment count indicator with upload limit
+    // File attachment count indicator
     const fEl = document.getElementById('cgpt-ctx-files');
     if (fEl) {
-      const estLimit = 50;
-      fEl.style.display = '';
       if (_ctxFiles > 0) {
-        const fPct = Math.min(100, Math.round((_ctxFiles / estLimit) * 100));
-        fEl.style.color = fPct >= 100 ? '#ef4444' : fPct >= 70 ? '#f97316' : '';
-        fEl.textContent = `\u{1F4CE} ${_ctxFiles} / ~${estLimit}`;
+        fEl.style.display = '';
+        fEl.textContent = `\u{1F4CE}${_ctxFiles}`;
       } else {
-        fEl.style.color = '';
-        fEl.textContent = `\u{1F4CE} 0 / ~${estLimit}`;
-        fEl.style.opacity = '.4';
+        fEl.style.display = 'none';
       }
-      if (_ctxFiles > 0) fEl.style.opacity = '.7';
     }
   });
 }
@@ -901,7 +976,7 @@ function _showCtxWarn() {
 
 // Parse SSE stream: update context bar in real-time (throttled), render finally at [DONE]
 let _sseTick = 0; // timestamp of last real-time render
-async function _parseSSE(stream) {
+async function _parseSSE(stream, encChatId) {
   const reader = stream.getReader();
   const dec    = new TextDecoder();
   let buf = '', lastUsage = null, done_flag = false;
@@ -923,7 +998,10 @@ async function _parseSSE(stream) {
               const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
               if (chatId) setTimeout(() => _fetchCtxData(chatId), 600);
             }
-
+            // Decrypt assistant reply and restore user message text for encrypted chats
+            if (encChatId && _encryptedIds.has(encChatId)) {
+              setTimeout(() => { _decryptAll(); _restoreUserDisplay(); }, 500);
+            }
           }
           continue;
         }
@@ -957,6 +1035,7 @@ function _installFetchInterceptor() {
     const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
     // NOTE: content scripts run in an isolated JS world. This patched window.fetch
     // only intercepts fetches made by our own extension code, NOT ChatGPT's page.
+    // Outgoing encryption is handled via the DOM send interceptor (_setupSendInterceptor).
     // Tee only the streaming POST for context bar SSE parsing (best-effort).
     const res = await _orig.call(this, input, init);
     if ((init?.method || 'GET').toUpperCase() === 'POST'
@@ -964,8 +1043,9 @@ function _installFetchInterceptor() {
         && !url.includes('?')
         && res.body) {
       try {
+        const chatIdForSse = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
         const [b1, b2] = res.body.tee();
-        _parseSSE(b2);
+        _parseSSE(b2, chatIdForSse);
         return new Response(b1, { status: res.status, statusText: res.statusText, headers: res.headers });
       } catch {}
     }
@@ -983,12 +1063,7 @@ async function _fetchCtxData(chatId, retries = 2) {
     try { r = await fetch(`${CONFIG.api.conversationBase}${chatId}`, Object.keys(h).length ? { headers: h } : undefined); }
     catch (e) { if (_isCtxErr(e)) _killScript(); return; }
     if (!_extCtxOk()) return;
-    if (r.status === 401 && retries > 0) {
-      // Token may have rotated — evict the cache so the retry reads a fresh one
-      _hdrCache = null;
-      setTimeout(() => { if (!_dead) _fetchCtxData(chatId, retries - 1); }, 3000);
-      return;
-    }
+    if (r.status === 401 && retries > 0) { setTimeout(() => { if (!_dead) _fetchCtxData(chatId, retries - 1); }, 3000); return; }
     if (!r.ok) return;
     let data;
     try { data = await r.json(); } catch (e) { if (_isCtxErr(e)) _killScript(); return; }
@@ -1019,9 +1094,6 @@ async function _fetchCtxData(chatId, retries = 2) {
     if (w !== _ctxWin) _ctxWin = w;
     // Sync model badge from API data (catches model changes the button observer might miss)
     if (slug && _s.modelBadge) {
-      const lbl = document.getElementById('cgpt-badge-label');
-      // API model_slug is the ground truth — update badge label directly
-      if (lbl && lbl.textContent !== slug) lbl.textContent = slug;
       const btn = document.querySelector(CONFIG.sel.modelBtn);
       if (btn) _readModel(btn);
     }
@@ -1047,7 +1119,6 @@ function setupContextBar() {
 }
 
 function teardownContextBar() {
-  cancelAnimationFrame(_ctxRenderRaf); _ctxRenderRaf = 0;
   document.getElementById('cgpt-ctx-bar')?.remove();
   document.getElementById('cgpt-ctx-warn')?.remove();
   document.getElementById('cgpt-ctx-popover')?.remove();
@@ -1291,47 +1362,446 @@ function teardownDateGroups() {
   document.getElementById('cgpt-dg-css')?.remove();
 }
 
-// TOP-BAR EXPORT BUTTON — inline button in the banner (right side)
 // ---------------------------------------------------------------------------
-function _getOrCreateExportBtn() {
-  let btn = document.getElementById('cgpt-export-btn');
-  if (btn) return btn;
-  const dark = isDark();
-  btn = document.createElement('button'); btn.id = 'cgpt-export-btn';
-  Object.assign(btn.style, { display:'inline-flex', alignItems:'center', gap:'5px', padding:'3px 10px 3px 8px', borderRadius:'8px', border: dark ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(0,0,0,.12)', background: dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)', color: dark ? '#ececec' : '#111', fontSize:'12px', fontWeight:'500', fontFamily:'inherit', cursor:'pointer', userSelect:'none', flexShrink:'0', marginLeft:'6px', transition:'opacity .12s' });
-  btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Export</span>`;
-  btn.addEventListener('mouseenter', () => btn.style.opacity = '.75');
-  btn.addEventListener('mouseleave', () => btn.style.opacity = '1');
-  btn.addEventListener('click', _exportCurrentChat);
-  // Place after context bar, or after model badge, or append to banner
-  const ctxBar = document.getElementById('cgpt-ctx-bar');
-  const badge  = document.getElementById('cgpt-model-badge');
-  const ref    = ctxBar || badge;
-  const parent = ref?.parentElement;
-  if (parent) parent.insertBefore(btn, ref.nextSibling);
-  else { const bn = document.querySelector(CONFIG.sel.banner); if (bn) bn.appendChild(btn); }
-  return btn;
+// FEATURE 9 — Chat Vault (PIN-protected locked chats)
+// ---------------------------------------------------------------------------
+
+function _ensureLockCss() {
+  if (document.getElementById('cgpt-lock-css')) return;
+  const s = document.createElement('style'); s.id = 'cgpt-lock-css';
+  // Lock icon is a static visual indicator only — no pointer-events.
+  // It becomes visible (amber) only when the chat is locked (cgpt-is-locked).
+  s.textContent = `
+    .cgpt-lock-icon{position:absolute;right:34px;top:50%;transform:translateY(-50%);
+      display:flex;align-items:center;justify-content:center;
+      width:18px;height:18px;border-radius:4px;
+      opacity:0;pointer-events:none;
+      transition:opacity .12s;z-index:100;color:#f59e0b;}
+    .cgpt-lock-icon.cgpt-is-locked{opacity:1 !important;}
+    .cgpt-lock-icon.cgpt-is-encrypted{opacity:1 !important;color:#3b82f6 !important;}`;
+  document.head.appendChild(s);
 }
 
-function _exportCurrentChat() {
+async function _hashPin(pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function _vaultPinModal(mode) {
+  return new Promise(resolve => {
+    const dark = isDark();
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.65)', zIndex:'1000001', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
+    const box = document.createElement('div');
+    Object.assign(box.style, { background: dark ? '#1a1a1e' : '#fff', color: dark ? '#ececec' : '#111', borderRadius:'18px', padding:'32px 28px 24px', width:'min(300px,92vw)', boxShadow:'0 24px 64px rgba(0,0,0,.55)', display:'flex', flexDirection:'column', gap:'16px', textAlign:'center', alignItems:'center' });
+    const title = document.createElement('div'); title.style.cssText = 'font-weight:700;font-size:17px;margin-top:4px';
+    title.textContent = mode === 'set' ? 'Create Vault PIN' : 'Vault Locked';
+    const sub = document.createElement('div'); sub.style.cssText = 'font-size:12px;opacity:.5;margin-top:-8px;line-height:1.5';
+    sub.textContent = mode === 'set' ? 'Choose a 4-digit PIN to protect your locked chats' : 'Enter 4-digit PIN to access your locked chats';
+
+    function makeDots(label) {
+      const wrap = document.createElement('div'); wrap.style.cssText = 'width:100%';
+      if (label) { const l = document.createElement('div'); l.textContent = label; l.style.cssText = 'font-size:11px;opacity:.4;margin-bottom:8px;text-align:left'; wrap.appendChild(l); }
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:10px;justify-content:center';
+      const inps = [];
+      for (let i = 0; i < 4; i++) {
+        const inp = document.createElement('input');
+        inp.type='password'; inp.maxLength=1; inp.inputMode='numeric'; inp.pattern='[0-9]';
+        Object.assign(inp.style, { width:'48px', height:'54px', border: dark ? '1.5px solid rgba(255,255,255,.18)' : '1.5px solid rgba(0,0,0,.18)', borderRadius:'11px', background: dark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)', color: dark ? '#fff' : '#111', fontSize:'24px', fontWeight:'700', textAlign:'center', outline:'none', caretColor:'transparent', fontFamily:'inherit', transition:'border-color .15s,box-shadow .15s' });
+        inp.addEventListener('focus', () => { inp.style.borderColor='#10a37f'; inp.style.boxShadow='0 0 0 3px rgba(16,163,127,.2)'; });
+        inp.addEventListener('blur',  () => { inp.style.borderColor = dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)'; inp.style.boxShadow='none'; });
+        inp.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g,'').slice(-1); if (e.target.value && i < 3) inps[i+1].focus(); if (inps.every(x => x.value)) setTimeout(() => submitBtn.click(), 60); });
+        inp.addEventListener('keydown', e => { if (e.key==='Backspace' && !inp.value && i>0) { inps[i-1].value=''; inps[i-1].focus(); } if (e.key==='Escape') { overlay.remove(); resolve(null); } });
+        inps.push(inp); row.appendChild(inp);
+      }
+      wrap.appendChild(row);
+      return { wrap, inps };
+    }
+
+    const { wrap: d1, inps: pin1 } = makeDots(mode === 'set' ? 'PIN' : null);
+    let pin2 = null, d2 = null;
+    if (mode === 'set') { const r = makeDots('Confirm PIN'); d2 = r.wrap; pin2 = r.inps; }
+
+    const errMsg = document.createElement('div'); errMsg.style.cssText = 'color:#ef4444;font-size:12px;min-height:14px;width:100%;text-align:center';
+    const submitBtn = document.createElement('button');
+    submitBtn.textContent = mode === 'set' ? 'Set PIN' : 'Unlock';
+    Object.assign(submitBtn.style, { background:'#10a37f', color:'#fff', border:'none', borderRadius:'11px', padding:'12px', fontSize:'14px', fontWeight:'600', cursor:'pointer', fontFamily:'inherit', width:'100%', transition:'opacity .1s' });
+    submitBtn.addEventListener('mouseenter', () => submitBtn.style.opacity='.85');
+    submitBtn.addEventListener('mouseleave', () => submitBtn.style.opacity='1');
+    submitBtn.addEventListener('click', async () => {
+      const pin = pin1.map(x=>x.value).join('');
+      if (pin.length < 4) { errMsg.textContent='Enter all 4 digits'; return; }
+      if (mode === 'set') {
+        const conf = pin2.map(x=>x.value).join('');
+        if (conf.length < 4) { errMsg.textContent='Confirm your PIN'; return; }
+        if (pin !== conf) { errMsg.textContent='PINs do not match'; pin1.forEach(x=>x.value=''); pin2.forEach(x=>x.value=''); pin1[0].focus(); return; }
+        overlay.remove(); resolve(pin);
+      } else {
+        const hash = await _hashPin(pin);
+        const stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash;
+        if (hash === stored) { overlay.remove(); resolve(pin); }
+        else { errMsg.textContent='Incorrect PIN'; pin1.forEach(x=>x.value=''); pin1[0].focus(); }
+      }
+    });
+    const cancelBtn = document.createElement('button'); cancelBtn.textContent='Cancel';
+    Object.assign(cancelBtn.style, { background:'none', color: dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.35)', border:'none', fontSize:'13px', cursor:'pointer', fontFamily:'inherit' });
+    cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
+    box.append(title, sub, d1);
+    if (d2) box.append(d2);
+    box.append(errMsg, submitBtn, cancelBtn);
+    overlay.appendChild(box); document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target===overlay) { overlay.remove(); resolve(null); } });
+    setTimeout(() => pin1[0].focus(), 60);
+  });
+}
+
+async function _toggleLockChat(chatId, link) {
+  if (_lockedIds.has(chatId)) {
+    // Already locked — verify PIN before unlocking
+    let stored;
+    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
+    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+    if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
+    _lockedIds.delete(chatId);
+    _encryptedIds.delete(chatId);
+    link.style.removeProperty('display');
+    delete link.dataset.cgptLocked;
+    delete link.dataset.cgptEncrypted;
+    const lk = link.querySelector('.cgpt-lock-icon');
+    if (lk) { lk.classList.remove('cgpt-is-locked', 'cgpt-is-encrypted'); lk.title = ''; }
+  } else {
+    // Not locked — set PIN if first time, then lock
+    let stored;
+    try { stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash; }
+    catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+    if (!stored) {
+      const pin = await _vaultPinModal('set'); if (!pin) return;
+      const hash = await _hashPin(pin);
+      try { await _storeSet({ cgpt_pin_hash: hash }); }
+      catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+    }
+    _lockedIds.add(chatId);
+    link.dataset.cgptLocked = '1';
+    const lk = link.querySelector('.cgpt-lock-icon');
+    if (lk) { lk.classList.add('cgpt-is-locked'); lk.title = 'Hidden'; }
+    if (!_vaultOpen) link.style.setProperty('display','none','important');
+  }
+  try { await _storeSet({ cgpt_locked_ids: [..._lockedIds], cgpt_encrypted_ids: [..._encryptedIds] }); }
+  catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+  _renderVaultHeader();
+}
+
+let _vaultHdrRetry = 0;
+function _renderVaultHeader() {
+  const count = _lockedIds.size;
+  let hdr = document.getElementById('cgpt-vault-hdr');
+
+  // Find the correct sidebar nav — use closest('nav') from a real sidebar link
+  // so we don't accidentally pick up a different <nav> on the page.
+  const firstLink = document.querySelector(CONFIG.sel.sidebarLink);
+  const navEl = firstLink?.closest('nav') ?? document.querySelector('nav[aria-label]') ?? document.querySelector('nav');
+  if (!navEl) {
+    hdr?.remove();
+    if (_vaultHdrRetry < 5) { _vaultHdrRetry++; setTimeout(_renderVaultHeader, 600); }
+    return;
+  }
+  _vaultHdrRetry = 0;
+
+  if (!hdr) {
+    hdr = document.createElement('button'); hdr.id = 'cgpt-vault-hdr';
+    const dark = isDark();
+    Object.assign(hdr.style, {
+      display:'flex', alignItems:'center', gap:'8px', width:'100%',
+      padding:'8px 14px', margin:'0', border:'none',
+      borderBottom: dark ? '1px solid rgba(255,255,255,.07)' : '1px solid rgba(0,0,0,.07)',
+      background:'none', cursor:'pointer', fontFamily:'inherit',
+      color: dark ? '#c9cdd4' : '#4b5563', fontSize:'12px', fontWeight:'600',
+      textAlign:'left', boxSizing:'border-box', transition:'background .12s',
+      flexShrink:'0'
+    });
+    hdr.addEventListener('mouseenter', () => hdr.style.background = isDark() ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.04)');
+    hdr.addEventListener('mouseleave', () => hdr.style.background = 'none');
+    hdr.addEventListener('click', _openVault);
+
+    // Insert between logo-header row and the icons area (New chat, Search, etc.).
+    // Use firstLink.closest('nav') so we always get the correct sidebar nav even
+    // when multiple <nav> elements exist on the page.
+    // The <aside> element inside nav is the icons/New-chat section (implicit role
+    // "complementary") — inserting before it puts vault between logo row and icons.
+    try {
+      const asideEl = navEl.querySelector('aside') || navEl.querySelector('[role="complementary"]');
+      let refNode = asideEl;
+      while (refNode && refNode.parentElement !== navEl) refNode = refNode.parentElement;
+      navEl.insertBefore(hdr, refNode ?? null);
+    } catch (_) {
+      navEl.appendChild(hdr);
+    }
+  }
+
+  const lckSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" style="flex-shrink:0;opacity:.5"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
+  const encCount  = _encryptedIds.size;
+  const hideCount = count - encCount;
+  const detailParts = [];
+  if (encCount  > 0) detailParts.push(`${encCount} encrypted`);
+  if (hideCount > 0) detailParts.push(`${hideCount} hidden`);
+  const statusTxt = count === 0
+    ? 'select chats to lock them'
+    : (_vaultOpen ? 'open \u2014 click to lock' : (detailParts.join(' \u00b7 ') + ' \u2014 click to unlock'));
+  hdr.innerHTML = `${lckSvg}<span style="flex:1">Hidden Chats${count ? ' \u00b7 '+count : ''}</span><span style="font-size:10px;opacity:.35;font-weight:400">${statusTxt}</span>`;
+}
+
+async function _openVault() {
+  if (!_lockedIds.size) return;
+  if (_vaultOpen) { _closeVault(); return; }
+  const stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash;
+  if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
+  _vaultOpen = true;
+  document.querySelectorAll('[data-cgpt-locked="1"]').forEach(l => l.style.removeProperty('display'));
+  _renderVaultHeader();
+  clearTimeout(_vaultTimer);
+  _vaultTimer = setTimeout(_closeVault, 3 * 60 * 1000); // auto-relock after 3 min
+}
+
+function _closeVault() {
+  _vaultOpen = false; clearTimeout(_vaultTimer);
+  document.querySelectorAll('[data-cgpt-locked="1"]').forEach(l => l.style.setProperty('display','none','important'));
+  _renderVaultHeader();
+}
+
+async function setupVault() {
+  let data;
+  try { data = await _storeGet(['cgpt_locked_ids', 'cgpt_encrypted_ids']); }
+  catch (e) { if (_isCtxErr(e)) _killScript(); return; }
+  _lockedIds    = new Set(data.cgpt_locked_ids    || []);
+  _encryptedIds = new Set(data.cgpt_encrypted_ids || []);
+  _ensureLockCss();
+  if (_lockedIds.size) {
+    document.querySelectorAll(CONFIG.sel.sidebarLink).forEach(link => {
+      const id = extractId(link.getAttribute('href'));
+      if (!id || !_lockedIds.has(id)) return;
+      link.dataset.cgptLocked = '1';
+      if (_encryptedIds.has(id)) link.dataset.cgptEncrypted = '1';
+      if (!_vaultOpen) link.style.setProperty('display','none','important');
+      const lk = link.querySelector('.cgpt-lock-icon');
+      if (lk) {
+        lk.classList.add('cgpt-is-locked');
+        if (_encryptedIds.has(id)) { lk.classList.add('cgpt-is-encrypted'); lk.title = 'Encrypted'; }
+        else { lk.title = 'Hidden'; }
+      }
+    });
+  }
+  _renderVaultHeader();
+}
+
+// ---------------------------------------------------------------------------
+// FEATURE 11 — Vault Encryption (Base64 channel for locked chats)
+// ---------------------------------------------------------------------------
+// ARCHITECTURE NOTE:
+// Chrome MV3 content scripts run in an ISOLATED JavaScript world. Patching
+// window.fetch in a content script only intercepts the extension's OWN fetches,
+// not the ChatGPT page's requests. We therefore intercept outgoing messages at
+// the DOM level (capture-phase listeners on the send button and Enter key),
+// encode the textarea content before React reads it, then re-fire the event.
+// Incoming replies are decoded via a MutationObserver on the assistant message
+// elements as they are added to the DOM.
+// ---------------------------------------------------------------------------
+
+// chat IDs that have already received the one-time encryption primer this session
+const _cgptEncPrimed = new Set();
+// pending {chatId, original, encoded} entries — lets us restore displayed user text
+const _cgptEncQueue  = [];
+
+// UTF-8–safe Base64 encode / decode
+function _b64Enc(str) {
+  try { return btoa(unescape(encodeURIComponent(str))); }
+  catch { return btoa(str); }
+}
+function _b64Dec(str) {
+  try { return decodeURIComponent(escape(atob(str.replace(/\s+/g, '')))); }
+  catch { return null; }
+}
+// Returns true only when a string is a plausible Base64 block:
+// valid charset, length is multiple of 4, long enough to be a real message.
+function _looksBase64(str) {
+  const s = str.replace(/\s+/g, '');
+  return s.length >= 8 && /^[A-Za-z0-9+/]+=*$/.test(s) && s.length % 4 === 0;
+}
+
+// Encode a user message for transmission. Prepends the one-time primer on the
+// first message of a locked chat so the model knows to reply only in Base64.
+function _encOutgoing(text, chatId) {
+  const b64 = _b64Enc(text);
+  _cgptEncQueue.push({ chatId, original: text, encoded: b64 });
+  if (_cgptEncPrimed.has(chatId)) return b64;
+  _cgptEncPrimed.add(chatId);
+  // ACK string: the exact Base64 we expect the model to echo back as confirmation.
+  const ack = _b64Enc('Encrypted channel active. I understand and will comply.');
+  return (
+    `[ENCRYPTED CHANNEL — follow exactly]\n` +
+    `Rule 1: Every message I send you is Base64-encoded. Decode it first to understand me.\n` +
+    `Rule 2: Your ENTIRE reply must always be ONE Base64 string only — absolutely nothing else before or after it (no preamble, no labels, no markdown).\n` +
+    `Rule 3: Confirm you understood by replying with ONLY this exact Base64 string: ${ack}\n\n` +
+    b64
+  );
+}
+
+// Attempt to decrypt a single assistant message <div> and show plain text.
+// Leaves the element completely untouched if it is not valid Base64.
+function _decryptMsgEl(el) {
+  if (el.dataset.cgptDec) return;
+  // ChatGPT renders message text into a .markdown / prose div
+  const prose = el.querySelector('.markdown, [class*="prose"], [class*="markdown"]')
+                 || el.querySelector('[data-message-content]')
+                 || el;
+  const raw = prose.innerText?.trim() ?? '';
+  if (!raw || raw.length < 8) return;
+  // Strategy: try the whole text (whitespace stripped), then scan lines
+  // last-to-first (model sometimes prepends a short preamble line).
+  let decoded = null;
+  const full = raw.replace(/\s+/g, '');
+  if (_looksBase64(full)) decoded = _b64Dec(full);
+  if (!decoded) {
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (_looksBase64(lines[i])) { decoded = _b64Dec(lines[i]); break; }
+    }
+  }
+  if (!decoded) return; // not Base64 — leave untouched
+  el.dataset.cgptDec = '1';
+  const overlay = document.createElement('div');
+  overlay.dataset.cgptDecOverlay = '1';
+  overlay.style.cssText = 'white-space:pre-wrap;word-break:break-word;line-height:1.75';
+  overlay.textContent = decoded;
+  prose.style.setProperty('display', 'none', 'important');
+  el.insertBefore(overlay, prose);
+}
+
+// Scan and decrypt all undecrypted assistant messages in the current encrypted chat.
+function _decryptAll() {
   const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-  if (!chatId) { alert('Navigate to a chat first.'); return; }
-  _showExportModal(new Set([chatId]));
+  if (!chatId || !_encryptedIds.has(chatId)) return;
+  document.querySelectorAll('div[data-message-author-role="assistant"]:not([data-cgpt-dec])').forEach(_decryptMsgEl);
+}
+
+// After a user message was encoded before sending, its DOM node shows Base64.
+// Find it and overlay the original readable text on top.
+function _restoreUserDisplay() {
+  if (!_cgptEncQueue.length) return;
+  const userEls = [...document.querySelectorAll('div[data-message-author-role="user"]')];
+  // iterate a copy so splices don't skip items
+  [..._cgptEncQueue].forEach((item, qi) => {
+    const el = userEls.find(e =>
+      !e.dataset.cgptDecUser &&
+      (e.innerText?.trim() === item.encoded || e.innerText?.includes(item.encoded))
+    );
+    if (!el) return;
+    el.dataset.cgptDecUser = '1';
+    const overlay = document.createElement('div');
+    overlay.dataset.cgptDecOverlay = '1';
+    overlay.style.cssText = 'white-space:pre-wrap;word-break:break-word';
+    overlay.textContent = item.original;
+    // Hide only the direct prose descendant so layout is preserved
+    const prose = el.querySelector('[class*="prose"], [class*="whitespace"]') || el;
+    if (prose !== el) {
+      prose.style.setProperty('display', 'none', 'important');
+      el.insertBefore(overlay, prose);
+    } else {
+      el.insertBefore(overlay, el.firstChild);
+    }
+    _cgptEncQueue.splice(qi, 1);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DOM-level send interceptor — encodes textarea content in capture phase.
+// Content scripts run in an isolated JS world, so window.fetch patching only
+// intercepts the extension's own fetches, not ChatGPT's page requests.
+// We intercept at the DOM level: capture-phase listeners fire before React,
+// we encode the text via execCommand (which triggers React's input events),
+// then re-fire the original send event so React submits the encoded value.
+// ---------------------------------------------------------------------------
+let _cgptSendInProgress = false;
+
+function _setupSendInterceptor() {
+  if (window._cgptSendHooked) return;
+  window._cgptSendHooked = true;
+
+  const _encode = (e) => {
+    if (_cgptSendInProgress) return;
+    const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+    if (!chatId || !_encryptedIds.has(chatId)) return;
+    const ta = document.getElementById('prompt-textarea')
+             || document.querySelector('div[contenteditable="true"][aria-label]')
+             || document.querySelector('div[contenteditable="true"]');
+    if (!ta) return;
+    const text = (ta.innerText || ta.textContent || '').trim();
+    if (!text) return;
+
+    e.stopImmediatePropagation();
+    e.preventDefault();
+
+    const encoded = _encOutgoing(text, chatId);
+    // execCommand triggers React's native input-event chain so React's
+    // internal fiber state updates to the encoded value synchronously.
+    ta.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertText', false, encoded);
+
+    _cgptSendInProgress = true;
+    requestAnimationFrame(() => {
+      _cgptSendInProgress = false;
+      if (e.type === 'click') {
+        (e.target.closest('button') || document.querySelector('[data-testid="send-button"]'))?.click();
+      } else {
+        ta.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+          bubbles: true, cancelable: true
+        }));
+      }
+    });
+  };
+
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-testid="send-button"]')) _encode(e);
+  }, true);
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.metaKey
+        && e.target.closest('#prompt-textarea, [contenteditable="true"]')) _encode(e);
+  }, true);
+}
+
+// MutationObserver on <main> — decrypts assistant messages as they appear in the DOM.
+let _decryptObs = null;
+
+function _setupDecryptObserver() {
+  if (_decryptObs) return;
+  _decryptObs = new MutationObserver(() => {
+    const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+    if (!chatId || !_encryptedIds.has(chatId)) return;
+    document.querySelectorAll('div[data-message-author-role="assistant"]:not([data-cgpt-dec])').forEach(_decryptMsgEl);
+    if (_cgptEncQueue.length) _restoreUserDisplay();
+  });
+  const target = document.querySelector('main') || document.body;
+  _decryptObs.observe(target, { childList: true, subtree: true });
+}
+
+function _teardownDecryptObserver() {
+  _decryptObs?.disconnect();
+  _decryptObs = null;
 }
 
 // ---------------------------------------------------------------------------
 // FEATURE 10 — Export Selected Chats (Markdown / Plain Text / PDF)
 // ---------------------------------------------------------------------------
-function _showExportModal(exportIds) {
-  const ids = exportIds || _selectedIds;
-  if (!ids.size) { alert('No chats selected for export.'); return; }
+function _showExportModal() {
   const dark = isDark();
   const overlay = document.createElement('div');
   Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.65)', zIndex:'1000001', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
   const box = document.createElement('div');
   Object.assign(box.style, { background: dark ? '#1a1a1e' : '#fff', color: dark ? '#ececec' : '#111', borderRadius:'18px', padding:'28px', width:'min(360px,92vw)', boxShadow:'0 24px 64px rgba(0,0,0,.55)', display:'flex', flexDirection:'column', gap:'14px' });
   const ttl = document.createElement('div'); ttl.style.cssText='font-weight:700;font-size:16px';
-  ttl.textContent = `Export ${ids.size} conversation${ids.size>1?'s':''}`;
+  ttl.textContent = `Export ${_selectedIds.size} conversation${_selectedIds.size>1?'s':''}`;
   const sub = document.createElement('div'); sub.style.cssText='font-size:12px;opacity:.5';
   sub.textContent = 'Choose a format:';
   const formats = [
@@ -1356,7 +1826,7 @@ function _showExportModal(exportIds) {
   expBtn.addEventListener('mouseleave',()=>expBtn.style.opacity='1');
   expBtn.addEventListener('click', async () => {
     expBtn.disabled=true; expBtn.style.opacity='.5'; expBtn.textContent='Exporting…';
-    try { await _runExport(chosen, prog, ids); overlay.remove(); }
+    try { await _runExport(chosen, prog); overlay.remove(); }
     catch(e) { prog.textContent='Error: '+e.message; expBtn.disabled=false; expBtn.style.opacity='1'; expBtn.textContent='Export'; }
   });
   const cancelBtn = document.createElement('button'); cancelBtn.textContent='Cancel';
@@ -1367,69 +1837,12 @@ function _showExportModal(exportIds) {
   overlay.appendChild(box); document.body.appendChild(overlay);
 }
 
-// ---------------------------------------------------------------------------
-// Minimal ZIP file generator (STORE method, no compression, pure JS)
-// ---------------------------------------------------------------------------
-function _crc32(data) {
-  let crc = 0xFFFFFFFF;
-  for (let i = 0; i < data.length; i++) {
-    crc ^= data[i];
-    for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
-  }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-function _createZipBlob(files) {
-  const enc = new TextEncoder();
-  const parts = [], centralDir = [];
-  let offset = 0;
-  files.forEach(file => {
-    const nameBytes = enc.encode(file.name);
-    const dataBytes = enc.encode(file.content);
-    const crc = _crc32(dataBytes);
-    // Local file header (30 + name length)
-    const local = new Uint8Array(30 + nameBytes.length);
-    const lv = new DataView(local.buffer);
-    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true);
-    lv.setUint16(8, 0, true); // STORE
-    lv.setUint32(14, crc, true);
-    lv.setUint32(18, dataBytes.length, true);
-    lv.setUint32(22, dataBytes.length, true);
-    lv.setUint16(26, nameBytes.length, true);
-    local.set(nameBytes, 30);
-    parts.push(local, dataBytes);
-    // Central directory entry (46 + name length)
-    const cd = new Uint8Array(46 + nameBytes.length);
-    const cv = new DataView(cd.buffer);
-    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
-    cv.setUint32(16, crc, true);
-    cv.setUint32(20, dataBytes.length, true);
-    cv.setUint32(24, dataBytes.length, true);
-    cv.setUint16(28, nameBytes.length, true);
-    cv.setUint32(42, offset, true);
-    cd.set(nameBytes, 46);
-    centralDir.push(cd);
-    offset += local.length + dataBytes.length;
-  });
-  const cdOffset = offset;
-  let cdSize = 0;
-  centralDir.forEach(cd => { parts.push(cd); cdSize += cd.length; });
-  const eocd = new Uint8Array(22);
-  const ev = new DataView(eocd.buffer);
-  ev.setUint32(0, 0x06054b50, true);
-  ev.setUint16(8, files.length, true);
-  ev.setUint16(10, files.length, true);
-  ev.setUint32(12, cdSize, true);
-  ev.setUint32(16, cdOffset, true);
-  parts.push(eocd);
-  return new Blob(parts, { type: 'application/zip' });
-}
-
-async function _runExport(format, progress, exportIds) {
+async function _runExport(format, progress) {
   if (!_extCtxOk()) throw new Error('Extension reloaded — please refresh the page');
   let h;
   try { h = await getHeaders(); } catch (e) { if (_isCtxErr(e)) _killScript(); throw new Error('Extension reloaded — please refresh the page'); }
   if (!_extCtxOk() || !h.authorization) throw new Error('Auth not captured — send a message in ChatGPT first');
-  const ids = [...(exportIds || _selectedIds)], convos = [];
+  const ids = [..._selectedIds], convos = [];
   for (let i = 0; i < ids.length; i++) {
     if (!_extCtxOk()) throw new Error('Extension reloaded — please refresh the page');
     if (progress) progress.textContent = `Fetching ${i+1} / ${ids.length}…`;
@@ -1440,26 +1853,6 @@ async function _runExport(format, progress, exportIds) {
   }
   if (!convos.length) throw new Error('No conversations could be fetched');
   const date = new Date().toISOString().slice(0,10);
-
-  // Multi-chat: create individual files and zip them together
-  if (convos.length > 1 && (format === 'md' || format === 'txt')) {
-    if (progress) progress.textContent = 'Creating zip…';
-    const ext = format === 'md' ? '.md' : '.txt';
-    const usedNames = {};
-    const files = convos.map(c => {
-      let name = (c.title || 'chat').replace(/[^\w\s-]/g, '').trim().slice(0, 50) || 'chat';
-      if (usedNames[name]) { usedNames[name]++; name += ` (${usedNames[name]})`; } else { usedNames[name] = 1; }
-      return { name: name + ext, content: format === 'md' ? _buildMd([c]) : _buildTxt([c]) };
-    });
-    const zipBlob = _createZipBlob(files);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(zipBlob);
-    a.download = `chatgpt-export-${date}.zip`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    return;
-  }
-
   const base = convos.length===1 ? (convos[0].title||'chat').replace(/[^\w\s-]/g,'').trim().slice(0,50) : `chatgpt-export-${date}`;
   if (format==='md')  _downloadBlob(_buildMd(convos),  `${base}.md`,  'text/markdown');
   if (format==='txt') _downloadBlob(_buildTxt(convos), `${base}.txt`, 'text/plain');
@@ -1628,16 +2021,11 @@ let _riBadge   = false;
 let _riSidebar = false;
 
 function _schedInject() {
-  // setTimeout(0) puts work in a fresh macrotask — completely outside React’s
-  // synchronous commit phase and layout-effects phase. requestAnimationFrame
-  // fires before paint while React may still be running layout effects,
-  // causing our DOM insertions into React-managed elements to corrupt the
-  // fiber tree (React throws `undefined` via onRecoverableError).
   if (_riInject) return; _riInject = true;
-  setTimeout(() => {
+  requestAnimationFrame(() => {
     _riInject = false;
-    if (!_dead && _s.bulkActions) injectCheckboxes();
-  }, 0);
+    if (!_dead && _s.bulkActions) { injectCheckboxes(); _renderVaultHeader(); }
+  });
 }
 function _schedObserve() {
   if (_riObserve) return; _riObserve = true;
@@ -1656,7 +2044,6 @@ function _schedSidebar() {
 }
 
 const _mutObs = new MutationObserver(mutations => {
-  try {
   if (_dead) { _mutObs.disconnect(); return; }
   for (const mut of mutations) {
     for (const node of mut.addedNodes) {
@@ -1686,89 +2073,60 @@ const _mutObs = new MutationObserver(mutations => {
       }
     }
   }
-  } catch (e) { console.warn('[CGPT+] observer error:', e); }
 });
-// NOTE: _mutObs.observe() is called inside the boot callback, NOT here.
-// Starting the observer at parse time fires during React's hydration flood,
-// causing injectCheckboxes() to modify React-managed DOM mid-reconciliation.
+_mutObs.observe(document.body, { childList: true, subtree: true });
 
 // ---------------------------------------------------------------------------
-// SPA NAVIGATION DETECTOR
-// We do NOT patch history.pushState / replaceState at all.
-// Reason: content scripts run at document_idle, BEFORE ChatGPT's JS bundle
-// finishes loading. Capturing history.pushState at that point gives us the
-// *native* function — before React Router wraps it. Calling that native
-// version later bypasses React Router entirely, freezing the page.
-// Instead we poll location.pathname every 750ms. This is imperceptible to
-// users and is the standard pattern used by browser extensions.
+// SPA NAVIGATION
 // ---------------------------------------------------------------------------
 function _onNav() {
-  _sbBgCache  = null;
-  _hdrCache   = null;        // evict stale auth token — ChatGPT refreshes tokens transparently
-  _ctxToks    = 0;
-  _ctxFiles   = 0;
-  _ctxModel   = '';
-  // Release stale selection state and DOM reference from previous page
-  _selectedIds.clear();
-  _lastCb = null;
-  document.getElementById('cgpt-action-bar')?.remove();
+  _sbBgCache = null;
+  _ctxToks   = 0;
+  _ctxFiles  = 0;
+  _ctxModel  = '';
   document.getElementById('cgpt-ctx-bar')?.remove();
   document.getElementById('cgpt-ctx-warn')?.remove();
   document.getElementById('cgpt-ctx-popover')?.remove();
-  document.getElementById('cgpt-export-btn')?.remove();
   delete window._cgptGridRetried;
 
   requestAnimationFrame(() => {
-    try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] nav compactSidebar:', e); }
-    try { if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); } } catch (e) { console.warn('[CGPT+] nav dateGroups:', e); }
-  });
-  // Use setTimeout instead of a second nested rAF for DOM-mutating work.
-  // Nested rAF fires before paint while React may still be running layout
-  // effects — our DOM mutations then land mid-commit, corrupting the fiber tree.
-  // setTimeout(0) is a fresh macrotask, completely outside React's render cycle.
-  setTimeout(() => {
-    try { if (_s.modelBadge) setupModelBadge(true); } catch (e) { console.warn('[CGPT+] nav modelBadge:', e); }
-    try {
+    if (_s.compactSidebar) setupCompactSidebar();
+    if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); }
+    requestAnimationFrame(() => {
+      if (_s.modelBadge) setupModelBadge(true);
       if (_s.contextBar || _s.contextWarning) {
         if (_s.contextBar) _getOrCreateCtxBar();
-        // Always teardown first — the old observer may be on a detached <main>
-        _teardownCtxRefreshObserver();
         const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
         if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
-        else _renderCtxBar();
+        else { _teardownCtxRefreshObserver(); _renderCtxBar(); }
       }
-    } catch (e) { console.warn('[CGPT+] nav contextBar:', e); }
-    try { if (location.pathname.match(/\/c\//)) _getOrCreateExportBtn(); } catch {}
-    // Use _schedInject() not injectCheckboxes() directly — _schedInject uses
-    // setTimeout(0) internally, guaranteeing we're outside React's commit phase.
-    try { if (_s.bulkActions) _schedInject(); } catch (e) { console.warn('[CGPT+] nav bulkActions:', e); }
-  }, 150);
+      if (_s.bulkActions) { injectCheckboxes(); setupVault(); }
+      // Decrypt observer: active only when viewing an encrypted chat
+      const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+      if (_navId && _encryptedIds.has(_navId)) {
+        _setupDecryptObserver();
+        setTimeout(_decryptAll, 900);
+      } else {
+        _teardownDecryptObserver();
+      }
+    });
+  });
 }
 
-// URL polling replaces history.pushState patching — see comment above.
-let _lastNavPath = '';
-function _installNavDetector() {
-  _lastNavPath = location.pathname;
-  // Poll every 750ms — imperceptible lag, zero impact on ChatGPT's router.
-  setInterval(() => {
-    if (_dead) return;
-    const cur = location.pathname;
-    if (cur === _lastNavPath) return;
-    _lastNavPath = cur;
-    // Refresh context bar on any URL change (even same-chat param changes)
-    if (_s.contextBar || _s.contextWarning) {
-      const id = cur.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
-      if (id) _fetchCtxData(id); else { _ctxToks = 0; _renderCtxBar(); }
-    }
-    // Full nav refresh — run after a short delay so React has settled
-    setTimeout(_onNav, 120);
-  }, 750);
-  // popstate (browser back/forward) doesn't need polling
-  window.addEventListener('popstate', () => {
-    _lastNavPath = location.pathname;
-    setTimeout(_onNav, 120);
-  }, { passive: true });
-}
+const _origPush    = history.pushState.bind(history);
+const _origReplace = history.replaceState.bind(history);
+history.pushState = function (...a) { _origPush(...a); _onNav(); };
+// replaceState fires for URL-param-only changes (e.g. ?model= updates during a chat).
+// We do NOT trigger a full _onNav — just refresh the context bar if needed.
+history.replaceState = function (...a) {
+  _origReplace(...a);
+  if (_s.contextBar || _s.contextWarning) {
+    const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+    if (id) _fetchCtxData(id); else { _ctxToks = 0; _renderCtxBar(); }
+  }
+};
+// passive: true — _onNav never calls preventDefault
+window.addEventListener('popstate', _onNav, { passive: true });
 
 // ---------------------------------------------------------------------------
 // SETTINGS — instant apply handler
@@ -1780,13 +2138,11 @@ function _apply(key) {
       else            teardownVirtualization();
       break;
     case 'bulkActions':
-      if (_s.bulkActions) { _schedInject(); break; }
+      if (_s.bulkActions) { injectCheckboxes(); _renderVaultHeader(); break; }
       document.querySelectorAll('.cgpt-cb').forEach(cb => cb.remove());
       document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
-        // Do NOT call removeProperty — position/overflow/padding-left are CSS
-        // class rules now, not inline styles. Calling removeProperty on React-
-        // managed elements triggers React's style reconciliation error path.
-        link.classList.remove('cgpt-bulk-item', 'cgpt-cb-checked');
+        link.style.removeProperty('position'); link.style.removeProperty('overflow'); link.style.removeProperty('padding-left');
+        link.classList.remove('cgpt-bulk-item');
         delete link.dataset.cgptItem; delete link.dataset.cgptId; delete link.dataset.cgptIndex;
       });
       document.getElementById('cgpt-action-bar')?.remove();
@@ -1805,9 +2161,7 @@ function _apply(key) {
       if (_s.modelBadge) { setupModelBadge(true); break; }
       document.getElementById('cgpt-model-badge')?.remove();
       document.getElementById('cgpt-ctx-bar')?.remove();
-      document.getElementById('cgpt-export-btn')?.remove();
       _bannerObs?.disconnect(); _modelBtnObs?.disconnect();
-      clearInterval(_modelPollTimer);
       break;
     case 'contextBar':
     case 'contextWarning':
@@ -1856,37 +2210,21 @@ setTimeout(() => {
     if (!_extCtxOk()) return; // context died before we got storage data
     _s = { ...DEFAULT_SETTINGS, ...stored };
     // Critical path — run immediately (affect visible content)
-    // Each feature is isolated so one failure doesn't break the rest.
-    try { if (_s.lagFix)     setupVirtualization(); } catch (e) { console.warn('[CGPT+] lagFix init:', e); }
-    try { if (_s.modelBadge) setupModelBadge(); } catch (e) { console.warn('[CGPT+] modelBadge init:', e); }
-    try { if (_s.contextBar || _s.contextWarning) setupContextBar(); } catch (e) { console.warn('[CGPT+] contextBar init:', e); }
-    // Top-bar export button on chat pages
-    if (location.pathname.match(/\/c\//)) setTimeout(() => { try { _getOrCreateExportBtn(); } catch {} }, 500);
+    if (_s.lagFix)     setupVirtualization();
+    if (_s.modelBadge) setupModelBadge();
+    if (_s.contextBar || _s.contextWarning) setupContextBar();
     // Non-critical — defer to idle so we don't block first paint
-    // Fetch interceptor only needed when context bar/warning is enabled.
-    // setupContextBar() installs it lazily, so we only call it here when
-    // those features are already on at boot; otherwise it's a no-op.
-    if (_s.contextBar || _s.contextWarning) {
-      try { _installFetchInterceptor(); } catch (e) { console.warn('[CGPT+] fetchInterceptor:', e); }
-    }
-    // Nav detector uses URL polling — does NOT patch history.pushState.
-    try { _installNavDetector(); } catch (e) { console.warn('[CGPT+] navDetector:', e); }
-    // Start MutationObserver NOW (after settings load) — not at parse time.
-    // Firing during React hydration caused injectCheckboxes() to mutate the
-    // React-managed DOM mid-reconciliation, corrupting the fiber tree.
-    try { _mutObs.observe(document.body, { childList: true, subtree: true }); } catch (e) { console.warn('[CGPT+] mutObs:', e); }
+    // Always install the fetch interceptor — needed for vault encryption
+    // even when contextBar/contextWarning are both off.
+    _installFetchInterceptor();
+    _setupSendInterceptor();
     _idle(() => {
-      // One-time migration: purge storage keys left over from the removed Vault feature.
-      // These keys occupy sync/local quota for no reason once vault code is gone.
-      try {
-        chrome.storage.local.remove(['cgpt_locked_ids', 'cgpt_encrypted_ids', 'cgpt_pin_hash']);
-      } catch {}
-      try { if (_s.bulkActions)    injectCheckboxes(); } catch (e) { console.warn('[CGPT+] bulkActions init:', e); }
-      try { if (_s.compactSidebar) setupCompactSidebar(); } catch (e) { console.warn('[CGPT+] compactSidebar init:', e); }
-      try { if (_s.dateGroups)     setupDateGroups(); } catch (e) { console.warn('[CGPT+] dateGroups init:', e); }
+      if (_s.bulkActions)    { injectCheckboxes(); setupVault(); }
+      if (_s.compactSidebar) setupCompactSidebar();
+      if (_s.dateGroups)     setupDateGroups();
     });
 
-    console.log('[CGPT+] v3.4.3 ready');
+    console.log('[CGPT+] v3.3.0 ready');
   });
 }, 150);
 
