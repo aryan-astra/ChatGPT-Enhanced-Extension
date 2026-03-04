@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.4.0
+// ChatGPT Enhanced - content.js  v3.5.0
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -20,6 +20,9 @@ const CONFIG = {
     conversations:    'https://chatgpt.com/backend-api/conversations',
     conversationBase: 'https://chatgpt.com/backend-api/conversation/',
     conversationInit: 'https://chatgpt.com/backend-api/conversation/init',
+    memories:         'https://chatgpt.com/backend-api/memories',
+    imagesBootstrap:  'https://chatgpt.com/backend-api/images/bootstrap',
+    userSysMsg:       'https://chatgpt.com/backend-api/user_system_messages',
   },
 };
 
@@ -968,6 +971,11 @@ let _ctxWin  = 128000;
 let _ctxToks = 0;
 let _ctxFiles = 0;
 let _limitsProgress   = {};   // keyed by feature_name: {remaining, resetAfter} from /conversation/init
+let _blockedFeatures  = new Set();  // feature names currently hard-blocked (from /conversation/init)
+let _memoriesEnabled  = null;       // null = not yet fetched
+let _memoriesCount    = 0;
+let _imagesCount      = -1;         // -1 = not yet fetched
+let _customInstrOn    = null;       // null = not yet fetched
 let _ctxModel = '';
 let _ctxRefreshObs = null;
 let _ctxRefreshTimer = 0;
@@ -1016,8 +1024,50 @@ async function _fetchLimitsProgress() {
     });
     _limitsProgress = prog;
     _saveLimitsProgress();
+    // Capture blocked_features (features hard-blocked at session level)
+    const bl = new Set();
+    (data.blocked_features || []).forEach(f => bl.add(f.name));
+    _blockedFeatures = bl;
     // Also capture default_model_slug if we haven't read the model yet
     if (!_ctxModel && data.default_model_slug) _ctxModel = data.default_model_slug;
+  } catch (e) {
+    if (_isCtxErr(e)) _killScript();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fetch supplemental account data once per session (memories, images, custom
+// instructions). These are background metrics shown in the Context Intelligence
+// popover. Debounced to once every 5 minutes to avoid spam.
+// ---------------------------------------------------------------------------
+let _extDataLastFetch = 0;
+async function _fetchExtendedData() {
+  if (!_extCtxOk()) return;
+  const now = Date.now();
+  if (now - _extDataLastFetch < 300000) return; // 5 min cooldown
+  _extDataLastFetch = now;
+  try {
+    let h;
+    try { h = await getHeaders(); } catch { return; }
+    if (!_extCtxOk()) return;
+    const doFetch = url => fetch(url, Object.keys(h).length ? { headers: h } : undefined)
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    const [mems, imgs, usm] = await Promise.all([
+      doFetch(CONFIG.api.memories),
+      doFetch(CONFIG.api.imagesBootstrap),
+      doFetch(CONFIG.api.userSysMsg),
+    ]);
+    if (!_extCtxOk()) return;
+    if (mems) {
+      _memoriesEnabled = mems.memory_enabled !== false;
+      _memoriesCount   = Array.isArray(mems.memories) ? mems.memories.length : 0;
+    }
+    if (imgs) {
+      _imagesCount = imgs.images_count ?? 0;
+    }
+    if (usm) {
+      _customInstrOn = usm.enabled === true;
+    }
   } catch (e) {
     if (_isCtxErr(e)) _killScript();
   }
@@ -1105,12 +1155,15 @@ function _renderCtxBar(immediate = false) {
       if (entries.length > 0) {
         lEl.style.display = '';
         lEl.innerHTML = entries.map(([k, v]) => {
-          const col = v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
+          const isBlocked = _blockedFeatures.has(k);
+          const col = isBlocked || v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
           const icon = PILL_META[k].icon;
-          const rst = _fmtReset(v.resetAfter);
+          const rst = isBlocked ? '' : _fmtReset(v.resetAfter);
           const rstHtml = rst ? '<span style="opacity:.3;font-size:9px;margin-left:1px">' + rst + '</span>' : '';
           let val;
-          if (k === 'file_upload') {
+          if (isBlocked) {
+            val = '\u26D4\uFE0F\u202F' + icon; // ⛔ icon
+          } else if (k === 'file_upload') {
             const total = _ctxFiles + v.remaining;
             val = icon + '\u202F' + _ctxFiles + '/' + total;
           } else {
@@ -1303,6 +1356,8 @@ function setupContextBar() {
   else _renderCtxBar();
   // Fetch real feature limits from the conversation/init API (fire-and-forget)
   _fetchLimitsProgress();
+  // Fetch supplemental system data (memories, images count, custom instructions)
+  _fetchExtendedData();
 }
 
 function teardownContextBar() {
@@ -1313,6 +1368,12 @@ function teardownContextBar() {
   _ctxToks = 0;
   _ctxFiles = 0;
   _ctxModel = '';
+  _blockedFeatures  = new Set();
+  _memoriesEnabled  = null;
+  _memoriesCount    = 0;
+  _imagesCount      = -1;
+  _customInstrOn    = null;
+  _extDataLastFetch = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1441,6 +1502,35 @@ function _toggleCtxPopover() {
     uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
   }
 
+  // System section: memory count, generated images count, custom instructions
+  let sysSection = '';
+  {
+    const sysRows = [];
+    if (_memoriesEnabled !== null) {
+      const mText = _memoriesEnabled
+        ? (_memoriesCount > 0 ? _memoriesCount + ' saved' : 'On (empty)')
+        : 'Disabled';
+      const mStyle = _memoriesEnabled ? '' : 'opacity:.4';
+      sysRows.push('<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
+        + '<span style="opacity:.6;font-size:11px">\uD83E\uDDE0\u00A0Memory</span>'
+        + '<span style="font-size:11px;' + mStyle + '">' + mText + '</span></div>');
+    }
+    if (_imagesCount >= 0) {
+      sysRows.push('<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
+        + '<span style="opacity:.6;font-size:11px">\uD83D\uDDBC\uFE0F\u00A0Generated Images</span>'
+        + '<span style="font-size:11px">' + _imagesCount + '</span></div>');
+    }
+    if (_customInstrOn !== null) {
+      const cText = _customInstrOn ? 'On' : 'Off';
+      const cStyle = _customInstrOn ? '' : 'opacity:.4';
+      sysRows.push('<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
+        + '<span style="opacity:.6;font-size:11px">\uD83D\uDCDD\u00A0Custom Instructions</span>'
+        + '<span style="font-size:11px;' + cStyle + '">' + cText + '</span></div>');
+    }
+    if (sysRows.length) {
+      sysSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">SYSTEM</div>' + sysRows.join('') + '</div>';
+    }
+  }
 
   pop.innerHTML = `
     <div style="font-weight:700;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:6px">
@@ -1469,6 +1559,7 @@ function _toggleCtxPopover() {
       <div style="font-size:11px;line-height:1.55">${fStatus}</div>
     </div>
     ${uSection}
+    ${sysSection}
     <div style="${sep};font-size:10px;opacity:.25;text-align:center;padding-top:8px">Click pill to close &middot; Auto-refreshes every message</div>
   `;
 
@@ -2550,7 +2641,7 @@ setTimeout(() => {
     });
     _startWatchdog();
 
-    console.log('[CGPT+] v3.4.3 ready');
+    console.log('[CGPT+] v3.5.0 ready');
   });
 }, 150);
 

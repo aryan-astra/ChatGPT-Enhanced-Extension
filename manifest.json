@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Enhanced",
-  "version": "3.4.3",
+  "version": "3.5.0",
   "description": "Fixes typing lag with DOM virtualization and adds bulk sidebar management (select, archive, delete).",
   "permissions": [
     "activeTab",
