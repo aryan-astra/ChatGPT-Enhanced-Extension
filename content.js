@@ -58,6 +58,41 @@ function _fmtReset(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+// ---------------------------------------------------------------------------
+// MSG RATE persistence — survives page reloads and SPA navigation.
+// Stores raw ISO reset timestamp so the displayed "resets in X" stays accurate.
+// ---------------------------------------------------------------------------
+const _MSG_RATE_KEY = 'cgptEnh_msgRate';
+function _saveMsgRate() {
+  try {
+    if (_msgRateRemaining === null && _msgRateResetIso === null) {
+      localStorage.removeItem(_MSG_RATE_KEY);
+      return;
+    }
+    localStorage.setItem(_MSG_RATE_KEY, JSON.stringify({
+      remaining: _msgRateRemaining,
+      initial:   _msgRateInitial,
+      resetIso:  _msgRateResetIso,
+    }));
+  } catch(e) {}
+}
+function _loadMsgRate() {
+  try {
+    const raw = localStorage.getItem(_MSG_RATE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    // If the reset time is known and has already passed, the limit refreshed — discard
+    if (d.resetIso && new Date(d.resetIso).getTime() <= Date.now()) {
+      localStorage.removeItem(_MSG_RATE_KEY);
+      return;
+    }
+    _msgRateRemaining = typeof d.remaining === 'number' ? d.remaining : null;
+    _msgRateInitial   = typeof d.initial   === 'number' ? d.initial   : null;
+    _msgRateResetIso  = d.resetIso || null;
+    if (_msgRateResetIso) _msgRateReset = _fmtReset(_msgRateResetIso);
+  } catch(e) {}
+}
 function extractId(href) {
   const m = href?.match(/\/c\/([^/?#]+)/);
   return m ? m[1] : null;
@@ -941,7 +976,8 @@ let _ctxToks = 0;
 let _ctxFiles = 0;
 let _msgRateRemaining = null; // null=unknown, number=messages left before model limits out
 let _msgRateInitial   = null; // highest count seen = initial allocation for this window
-let _msgRateReset     = null; // ISO or relative string for when the msg rate limit resets
+let _msgRateReset     = null; // human-readable reset string, e.g. "in 2h 30m"
+let _msgRateResetIso  = null; // raw ISO-8601 reset timestamp — used for persistence & re-formatting
 let _limitsProgress   = {};   // keyed by feature_name: {remaining, resetAfter} from /conversation/init
 let _ctxModel = '';
 let _ctxRefreshObs = null;
@@ -971,6 +1007,7 @@ function _scanMsgRateLimit() {
         if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
         _msgRateRemaining = n;
         _limitsLastFetch = 0; // bypass debounce so API re-syncs model_limits
+        _saveMsgRate();
         return;
       }
     }
@@ -987,6 +1024,7 @@ function _scanMsgRateLimit() {
         if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
         _msgRateRemaining = n;
         _limitsLastFetch = 0;
+        _saveMsgRate();
         return;
       }
     }
@@ -1038,7 +1076,8 @@ async function _fetchLimitsProgress() {
         _msgRateRemaining = ml.remaining;
         // Capture reset time from API if present (field may be reset_after or resetAt)
         const resetIso = ml.reset_after || ml.resetAt || ml.reset_at || null;
-        if (resetIso && !_msgRateReset) _msgRateReset = _fmtReset(resetIso);
+        if (resetIso) { _msgRateResetIso = resetIso; _msgRateReset = _fmtReset(resetIso); }
+        _saveMsgRate();
       }
     }
     // Also capture default_model_slug if we haven't read the model yet
@@ -2399,9 +2438,8 @@ function _onNav() {
   _ctxToks          = 0;
   _ctxFiles         = 0;
   _ctxModel         = '';
-  _msgRateRemaining = null; // reset per-chat — counts are chat/session specific
-  _msgRateInitial   = null;
-  _msgRateReset     = null;
+  // _msgRate* intentionally NOT reset here — rate limits are account-wide and
+  // persist across conversations; fresh API data will overwrite them if still active.
   _limitsProgress   = {};   // reset so popover shows fresh data for the new chat
   _limitsLastFetch  = 0;    // allow immediate re-fetch on next nav
   _ctxBarRetries = 0;
@@ -2592,6 +2630,7 @@ document.addEventListener('visibilitychange', () => {
 // BOOT
 // ---------------------------------------------------------------------------
 setTimeout(() => {
+  _loadMsgRate(); // restore persisted rate-limit state before first render
   _syncGet(DEFAULT_SETTINGS).then(stored => {
     if (!_extCtxOk()) return; // context died before we got storage data
     _s = { ...DEFAULT_SETTINGS, ...stored };
