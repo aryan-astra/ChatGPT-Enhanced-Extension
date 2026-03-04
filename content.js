@@ -1158,12 +1158,10 @@ function _renderCtxBar(immediate = false) {
           const isBlocked = _blockedFeatures.has(k);
           const col = isBlocked || v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
           const icon = PILL_META[k].icon;
-          const rst = isBlocked ? '' : _fmtReset(v.resetAfter);
+          const rst = _fmtReset(v.resetAfter);
           const rstHtml = rst ? '<span style="opacity:.3;font-size:9px;margin-left:1px">' + rst + '</span>' : '';
           let val;
-          if (isBlocked) {
-            val = '\u26D4\uFE0F\u202F' + icon; // ⛔ icon
-          } else if (k === 'file_upload') {
+          if (k === 'file_upload') {
             const total = _ctxFiles + v.remaining;
             val = icon + '\u202F' + _ctxFiles + '/' + total;
           } else {
