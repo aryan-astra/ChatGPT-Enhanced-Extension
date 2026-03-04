@@ -1089,7 +1089,7 @@ function _renderCtxBar(immediate = false) {
     if (fEl) {
       if (_ctxFiles > 0) {
         fEl.style.display = '';
-        fEl.textContent = _ctxFiles + ' file' + (_ctxFiles === 1 ? '' : 's');
+        fEl.innerHTML = '\uD83D\uDCCE\uFE0F\u202F' + _ctxFiles;
       } else {
         fEl.style.display = 'none';
       }
@@ -1097,7 +1097,7 @@ function _renderCtxBar(immediate = false) {
     // Inline quota summary: show most constrained non-file limits
     const lEl = document.getElementById('cgpt-ctx-limits');
     if (lEl) {
-      const ABBR = { deep_research: 'DR', image_gen: 'IMG', paste_text_to_file: 'PTF', file_upload: 'UPL' };
+      const ABBR = { deep_research: 'DR', image_gen: 'Img', paste_text_to_file: 'Paste', file_upload: 'Upload' };
       const entries = Object.entries(_limitsProgress)
         .filter(([k]) => ABBR[k])
         .sort((a, b) => a[1].remaining - b[1].remaining);
@@ -1402,10 +1402,10 @@ function _toggleCtxPopover() {
 
   // Pre-compute usage limits section from real /conversation/init API data
   const FEAT_META = {
-    deep_research:     { abbr: 'DR',  label: 'Deep Research' },
-    image_gen:         { abbr: 'IMG', label: 'Image Gen' },
-    paste_text_to_file:{ abbr: 'PTF', label: 'Paste to File' },
-    file_upload:       { abbr: 'UPL', label: 'File Upload' },
+    deep_research:     { label: 'Deep Research' },
+    image_gen:         { label: 'Image Gen' },
+    paste_text_to_file:{ label: 'Paste to File' },
+    file_upload:       { label: 'File Upload' },
   };
   const limitsEntries = Object.keys(FEAT_META)
     .filter(k => _limitsProgress[k] !== undefined)
@@ -1418,12 +1418,12 @@ function _toggleCtxPopover() {
       const weight = rem <= 2 ? 'font-weight:600' : '';
       const rst = _fmtReset(e.resetAfter);
       return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
-        + '<span style="opacity:.6;font-size:11px">' + e.icon + ' ' + e.label + '</span>'
+        + '<span style="opacity:.6;font-size:11px">' + e.label + '</span>'
         + '<span style="font-size:11px;' + weight + ';color:' + color + '">'
         + rem + ' left' + (rst ? '<span style="opacity:.4;font-weight:400;margin-left:4px">· ' + rst + '</span>' : '')
         + '</span></div>';
     }).join('');
-    uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">\u26A1 USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
+    uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
   }
   let mStatus;
   if (mRem === null) {
