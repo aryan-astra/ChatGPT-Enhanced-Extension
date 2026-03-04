@@ -1308,6 +1308,38 @@ function _toggleCtxPopover() {
 
   const sep = `border-top:1px solid ${dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)'};padding-top:10px;margin-top:10px`;
 
+  // Pre-compute messages-remaining section (avoids IIFE inside template literal)
+  const mRem   = _msgRateRemaining;
+  const mInit  = _msgRateInitial;
+  const mPct   = (mRem !== null && mInit) ? Math.min(100, Math.round((mRem / mInit) * 100)) : 0;
+  const mColor = mRem !== null ? (mRem <= 3 ? '#ef4444' : mRem <= 10 ? '#f97316' : '#10a37f') : '#10a37f';
+  const mValStyle = mRem !== null
+    ? (mRem <= 3 ? 'font-weight:600;color:#ef4444' : mRem <= 10 ? 'font-weight:600;color:#f97316' : 'font-weight:600')
+    : 'font-weight:600;opacity:.4';
+  let mStatus;
+  if (mRem === null) {
+    mStatus = '<span style="opacity:.35">No rate-limit notice detected yet \u2014 this appears automatically when you are near the limit</span>';
+  } else if (mRem === 0) {
+    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached \u2014 model may downgrade or input may be blocked</span>';
+  } else if (mRem <= 3) {
+    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Almost at model limit</span><br><span style="opacity:.55;font-size:11px">Model may downgrade to a lower tier shortly</span>';
+  } else if (mRem <= 10) {
+    mStatus = '<span style="color:#f97316">Approaching rate limit \u2014 use messages carefully</span>';
+  } else {
+    mStatus = '<span style="opacity:.5">Within normal usage range</span>';
+  }
+  const mBar = (mRem !== null && mInit)
+    ? `<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${mPct}%;border-radius:2px;background:${mColor}"></div></div>`
+    : '';
+  const mSection = `<div style="${sep}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="opacity:.5;font-size:11px">\u{1F4AC} MESSAGES LEFT</span>
+        <span style="${mValStyle}">${mRem !== null ? mRem + ' remaining' : '\u2014'}</span>
+      </div>
+      ${mBar}
+      <div style="font-size:11px;line-height:1.55">${mStatus}</div>
+    </div>`;
+
   pop.innerHTML = `
     <div style="font-weight:700;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:6px">
       <span style="font-size:15px">\u{1F9E0}</span> Context Intelligence
@@ -1334,27 +1366,7 @@ function _toggleCtxPopover() {
       ${f > 0 ? `<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${fPct}%;border-radius:2px;background:${fColor}"></div></div>` : ''}
       <div style="font-size:11px;line-height:1.55">${fStatus}</div>
     </div>
-    ${(function(){
-      const mRem  = _msgRateRemaining;
-      const mInit = _msgRateInitial;
-      const mPct  = (mRem !== null && mInit) ? Math.min(100, Math.round((mRem / mInit) * 100)) : 0;
-      const mColor = mRem !== null ? (mRem <= 3 ? '#ef4444' : mRem <= 10 ? '#f97316' : '#10a37f') : '#10a37f';
-      const mValStyle = mRem !== null ? (mRem <= 3 ? 'font-weight:600;color:#ef4444' : mRem <= 10 ? 'font-weight:600;color:#f97316' : 'font-weight:600') : 'font-weight:600;opacity:.4';
-      let mStatus;
-      if (mRem === null) {
-        mStatus = '<span style="opacity:.35">No rate-limit notice detected yet — send a message to trigger</span>';
-      } else if (mRem === 0) {
-        mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached — model may downgrade or input may be blocked</span>';
-      } else if (mRem <= 3) {
-        mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Almost at model limit</span><br><span style="opacity:.55;font-size:11px">Model may downgrade to a lower tier on the next message</span>';
-      } else if (mRem <= 10) {
-        mStatus = '<span style="color:#f97316">Approaching rate limit for this model — use messages carefully</span>';
-      } else {
-        mStatus = '<span style="opacity:.5">Within normal usage range</span>';
-      }
-      const bar = (mRem !== null && mInit) ? '<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:' + mPct + '%;border-radius:2px;background:' + mColor + '"></div></div>' : '';
-      return '<div style="' + sep + '"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px"><span style="opacity:.5;font-size:11px">\u{1F4AC} MESSAGES LEFT</span><span style="' + mValStyle + '">' + (mRem !== null ? mRem + ' remaining' : '\u2014') + '</span></div>' + bar + '<div style="font-size:11px;line-height:1.55">' + mStatus + '</div></div>';
-    })()}
+    ${mSection}
     <div style="${sep};font-size:10px;opacity:.25;text-align:center;padding-top:8px">Click pill to close &middot; Auto-refreshes every message</div>
   `;
 
