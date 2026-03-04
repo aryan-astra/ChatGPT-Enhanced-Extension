@@ -1094,19 +1094,31 @@ function _renderCtxBar(immediate = false) {
         fEl.style.display = 'none';
       }
     }
-    // Inline quota summary: show most constrained non-file limits
+    // Inline quota summary — all limits with icons
     const lEl = document.getElementById('cgpt-ctx-limits');
     if (lEl) {
-      const ABBR = { deep_research: 'DR', image_gen: 'Img', paste_text_to_file: 'Paste', file_upload: 'Upload' };
+      const PILL_META = {
+        deep_research:      { icon: '\uD83D\uDD2D' },
+        image_gen:          { icon: '\uD83D\uDDBC\uFE0F' },
+        paste_text_to_file: { icon: '\uD83D\uDCCB' },
+        file_upload:        { icon: '\uD83D\uDCCE' },
+      };
       const entries = Object.entries(_limitsProgress)
-        .filter(([k]) => ABBR[k])
+        .filter(([k]) => PILL_META[k])
         .sort((a, b) => a[1].remaining - b[1].remaining);
       if (entries.length > 0) {
         lEl.style.display = '';
-        // Show up to 2 most constrained; red if 0, orange if <=2
-        lEl.innerHTML = entries.slice(0, 2).map(([k, v]) => {
+        lEl.innerHTML = entries.map(([k, v]) => {
           const col = v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
-          return '<span' + (col ? ' style="color:' + col + ';font-weight:600"' : '') + '>' + ABBR[k] + ':' + v.remaining + '</span>';
+          const icon = PILL_META[k].icon;
+          let val;
+          if (k === 'file_upload') {
+            const total = _ctxFiles + v.remaining;
+            val = icon + '\u202F' + _ctxFiles + '/' + total;
+          } else {
+            val = icon + '\u202F' + v.remaining;
+          }
+          return '<span' + (col ? ' style="color:' + col + ';font-weight:600"' : '') + '>' + val + '</span>';
         }).join('<span style="opacity:.35"> · </span>');
       } else {
         lEl.style.display = 'none';
@@ -1402,10 +1414,10 @@ function _toggleCtxPopover() {
 
   // Pre-compute usage limits section from real /conversation/init API data
   const FEAT_META = {
-    deep_research:     { label: 'Deep Research' },
-    image_gen:         { label: 'Image Gen' },
-    paste_text_to_file:{ label: 'Paste to File' },
-    file_upload:       { label: 'File Upload' },
+    deep_research:     { icon: '\uD83D\uDD2D',          label: 'Deep Research' },
+    image_gen:         { icon: '\uD83D\uDDBC\uFE0F',   label: 'Image Gen' },
+    paste_text_to_file:{ icon: '\uD83D\uDCCB',          label: 'Paste to File' },
+    file_upload:       { icon: '\uD83D\uDCCE',          label: 'File Upload' },
   };
   const limitsEntries = Object.keys(FEAT_META)
     .filter(k => _limitsProgress[k] !== undefined)
@@ -1417,10 +1429,17 @@ function _toggleCtxPopover() {
       const color = rem === 0 ? '#ef4444' : rem <= 2 ? '#f97316' : 'inherit';
       const weight = rem <= 2 ? 'font-weight:600' : '';
       const rst = _fmtReset(e.resetAfter);
+      let valText;
+      if (e.key === 'file_upload') {
+        const total = _ctxFiles + rem;
+        valText = _ctxFiles + '/' + total + ' used';
+      } else {
+        valText = rem + ' left';
+      }
       return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
-        + '<span style="opacity:.6;font-size:11px">' + e.label + '</span>'
+        + '<span style="opacity:.6;font-size:11px">' + e.icon + '\u00A0' + e.label + '</span>'
         + '<span style="font-size:11px;' + weight + ';color:' + color + '">'
-        + rem + ' left' + (rst ? '<span style="opacity:.4;font-weight:400;margin-left:4px">· ' + rst + '</span>' : '')
+        + valText + (rst ? '<span style="opacity:.4;font-weight:400;margin-left:4px">\u23F1\uFE0F\u202F' + rst + '</span>' : '')
         + '</span></div>';
     }).join('');
     uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
