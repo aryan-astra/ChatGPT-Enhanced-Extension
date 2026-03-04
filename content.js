@@ -924,6 +924,8 @@ const CTX_WINS = {
 let _ctxWin  = 128000;
 let _ctxToks = 0;
 let _ctxFiles = 0;
+let _msgRateRemaining = null; // null=unknown, number=messages left before model limits out
+let _msgRateInitial   = null; // highest count seen = initial allocation for this window
 let _ctxModel = '';
 let _ctxRefreshObs = null;
 let _ctxRefreshTimer = 0;
@@ -934,6 +936,27 @@ function _getCtxWindow(slug) {
   const s = (slug || '').toLowerCase();
   for (const [k, v] of Object.entries(CTX_WINS)) { if (s.includes(k)) return v; }
   return 128000;
+}
+
+// Scan the DOM for ChatGPT's inline rate-limit notice ("X messages remaining").
+// Called after every context bar render so the count stays fresh.
+function _scanMsgRateLimit() {
+  const re = /(\d+)\s+messages?\s+(remaining|left)/i;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const m = re.exec(node.textContent);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!isNaN(n) && n >= 0) {
+        // Track the highest number seen — that is the initial allocation
+        if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
+        _msgRateRemaining = n;
+        return;
+      }
+    }
+  }
+  // Not found — keep last known value; the notice may have been dismissed
 }
 
 function _getOrCreateCtxBar() {
@@ -1000,6 +1023,8 @@ function _renderCtxBar(immediate = false) {
         fEl.style.display = 'none';
       }
     }
+    // Refresh message rate-limit count from DOM
+    _scanMsgRateLimit();
   });
 }
 
@@ -1301,6 +1326,27 @@ function _toggleCtxPopover() {
       ${f > 0 ? `<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${fPct}%;border-radius:2px;background:${fColor}"></div></div>` : ''}
       <div style="font-size:11px;line-height:1.55">${fStatus}</div>
     </div>
+    ${(function(){
+      const mRem  = _msgRateRemaining;
+      const mInit = _msgRateInitial;
+      const mPct  = (mRem !== null && mInit) ? Math.min(100, Math.round((mRem / mInit) * 100)) : 0;
+      const mColor = mRem !== null ? (mRem <= 3 ? '#ef4444' : mRem <= 10 ? '#f97316' : '#10a37f') : '#10a37f';
+      const mValStyle = mRem !== null ? (mRem <= 3 ? 'font-weight:600;color:#ef4444' : mRem <= 10 ? 'font-weight:600;color:#f97316' : 'font-weight:600') : 'font-weight:600;opacity:.4';
+      let mStatus;
+      if (mRem === null) {
+        mStatus = '<span style="opacity:.35">No rate-limit notice detected yet — send a message to trigger</span>';
+      } else if (mRem === 0) {
+        mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached — model may downgrade or input may be blocked</span>';
+      } else if (mRem <= 3) {
+        mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Almost at model limit</span><br><span style="opacity:.55;font-size:11px">Model may downgrade to a lower tier on the next message</span>';
+      } else if (mRem <= 10) {
+        mStatus = '<span style="color:#f97316">Approaching rate limit for this model — use messages carefully</span>';
+      } else {
+        mStatus = '<span style="opacity:.5">Within normal usage range</span>';
+      }
+      const bar = (mRem !== null && mInit) ? '<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:' + mPct + '%;border-radius:2px;background:' + mColor + '"></div></div>' : '';
+      return '<div style="' + sep + '"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px"><span style="opacity:.5;font-size:11px">\u{1F4AC} MESSAGES LEFT</span><span style="' + mValStyle + '">' + (mRem !== null ? mRem + ' remaining' : '\u2014') + '</span></div>' + bar + '<div style="font-size:11px;line-height:1.55">' + mStatus + '</div></div>';
+    })()}
     <div style="${sep};font-size:10px;opacity:.25;text-align:center;padding-top:8px">Click pill to close &middot; Auto-refreshes every message</div>
   `;
 
