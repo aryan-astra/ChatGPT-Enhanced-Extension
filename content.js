@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS = {
   compactSidebar: true,
   bulkActions:    true,
   modelBadge:     true,
-  contextBar:     false,
+  contextBar:     true,
   contextWarning: false,
   dateGroups:     false,
   alphaMode:      false,
@@ -931,13 +931,8 @@ function _rebuildBadge(btn) {
     const bar   = document.getElementById('cgpt-ctx-bar');
     const badge = document.getElementById('cgpt-model-badge');
     if (bar && badge) {
-      // Reposition: insert bar immediately after the newly placed badge
-      const banner = document.querySelector(CONFIG.sel.banner);
-      if (banner && banner.contains(badge)) {
-        let ref = badge;
-        while (ref.parentElement && ref.parentElement !== banner) ref = ref.parentElement;
-        banner.insertBefore(bar, ref.nextSibling);
-      } else if (badge.parentElement) {
+      // Reposition: insert bar immediately after the badge in its flex row
+      if (badge.parentElement) {
         badge.parentElement.insertBefore(bar, badge.nextSibling);
       }
     } else if (!bar) {
@@ -1127,21 +1122,15 @@ function _getOrCreateCtxBar() {
   bar.addEventListener('click', _toggleCtxPopover);
   bar.title = 'Click for context details';
 
-  // Insertion strategy: we must insert at the BANNER's top-level flex row, not
-  // deep inside a child container that may have overflow:hidden or max-width.
-  // Walk up from the anchor (badge or model button) to the direct child of the
-  // banner element so we're always in the unconstrained top-level flex row.
-  const banner = document.querySelector(CONFIG.sel.banner);
+  // Insert bar directly after the badge (or model button) in the same flex row.
+  // Do NOT walk up to header level — that puts it outside the left flex container.
   const anchor = document.getElementById('cgpt-model-badge')
               ?? document.querySelector(CONFIG.sel.modelBtn);
-  if (anchor && banner && banner.contains(anchor)) {
-    let ref = anchor;
-    while (ref.parentElement && ref.parentElement !== banner) ref = ref.parentElement;
-    banner.insertBefore(bar, ref.nextSibling);
-  } else if (anchor?.parentElement) {
+  if (anchor?.parentElement) {
     anchor.parentElement.insertBefore(bar, anchor.nextSibling);
-  } else if (banner) {
-    banner.appendChild(bar);
+  } else {
+    const banner = document.querySelector(CONFIG.sel.banner);
+    if (banner) banner.appendChild(bar);
   }
   return bar;
 }

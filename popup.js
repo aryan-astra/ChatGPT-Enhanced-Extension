@@ -3,7 +3,7 @@ const DEFAULTS = {
   compactSidebar: true,
   bulkActions: true,
   modelBadge: true,
-  contextBar: false,
+  contextBar: true,
   contextWarning: false,
   dateGroups: false,
   alphaMode: false,
