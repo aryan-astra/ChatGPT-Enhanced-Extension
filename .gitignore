@@ -1,0 +1,9 @@
+# Developer notes — not part of the extension
+updates-till-now.md
+
+# Playwright artifacts
+.playwright-mcp/
+chatgpt.com.txt
+
+# Node
+node_modules/
