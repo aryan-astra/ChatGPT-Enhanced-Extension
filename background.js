@@ -59,8 +59,17 @@ function _syncAction(tabId, url) {
   }
 }
 
-// Disable by default for all tabs; enable only when the active tab is chatgpt.com
+// Disable globally, then immediately re-enable any already-open ChatGPT tabs.
+// This must run on every service worker wake (not just install), because MV3
+// service workers are ephemeral — Chrome restarts them and re-executes all
+// top-level code, which would otherwise leave ChatGPT tabs greyed out after
+// a refresh or any event that woke the worker.
 chrome.action.disable();
+chrome.tabs.query({}, (tabs) => {
+  for (const tab of tabs) {
+    if (tab.id != null && tab.url) _syncAction(tab.id, tab.url);
+  }
+});
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId, (tab) => {
@@ -69,8 +78,12 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   });
 });
 
+// Handle both navigations (changeInfo.url) and reloads (changeInfo.status).
+// On a same-URL refresh, changeInfo.url is undefined but status fires 'complete'.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url) _syncAction(tabId, changeInfo.url);
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    _syncAction(tabId, tab.url || '');
+  }
 });
 
 // ---------------------------------------------------------------------------
