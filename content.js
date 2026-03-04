@@ -1156,7 +1156,7 @@ function _renderCtxBar(immediate = false) {
         lEl.style.display = '';
         lEl.innerHTML = entries.map(([k, v]) => {
           const isBlocked = _blockedFeatures.has(k);
-          const col = isBlocked || v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
+          const col = v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
           const icon = PILL_META[k].icon;
           const rst = _fmtReset(v.resetAfter);
           const rstHtml = rst ? '<span style="opacity:.3;font-size:9px;margin-left:1px">' + rst + '</span>' : '';
