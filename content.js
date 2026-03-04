@@ -60,10 +60,9 @@ function _fmtReset(iso) {
 }
 
 // ---------------------------------------------------------------------------
-// Persistence — MSG rate limit + feature limits survive page reloads.
+// Persistence — feature limits survive page reloads (file/image/research quotas).
 // Raw ISO reset timestamps are stored so "resets in X" stays accurate.
 // ---------------------------------------------------------------------------
-const _MSG_RATE_KEY    = 'cgptEnh_msgRate';
 const _LIMITS_PROG_KEY = 'cgptEnh_limitsProgress';
 
 function _saveLimitsProgress() {
@@ -92,35 +91,6 @@ function _loadLimitsProgress() {
   } catch(e) {}
 }
 
-function _saveMsgRate() {
-  try {
-    if (_msgRateRemaining === null && _msgRateResetIso === null) {
-      localStorage.removeItem(_MSG_RATE_KEY);
-      return;
-    }
-    localStorage.setItem(_MSG_RATE_KEY, JSON.stringify({
-      remaining: _msgRateRemaining,
-      initial:   _msgRateInitial,
-      resetIso:  _msgRateResetIso,
-    }));
-  } catch(e) {}
-}
-function _loadMsgRate() {
-  try {
-    const raw = localStorage.getItem(_MSG_RATE_KEY);
-    if (!raw) return;
-    const d = JSON.parse(raw);
-    // If the reset time is known and has already passed, the limit refreshed — discard
-    if (d.resetIso && new Date(d.resetIso).getTime() <= Date.now()) {
-      localStorage.removeItem(_MSG_RATE_KEY);
-      return;
-    }
-    _msgRateRemaining = typeof d.remaining === 'number' ? d.remaining : null;
-    _msgRateInitial   = typeof d.initial   === 'number' ? d.initial   : null;
-    _msgRateResetIso  = d.resetIso || null;
-    if (_msgRateResetIso) _msgRateReset = _fmtReset(_msgRateResetIso);
-  } catch(e) {}
-}
 function extractId(href) {
   const m = href?.match(/\/c\/([^/?#]+)/);
   return m ? m[1] : null;
@@ -997,10 +967,6 @@ const CTX_WINS = {
 let _ctxWin  = 128000;
 let _ctxToks = 0;
 let _ctxFiles = 0;
-let _msgRateRemaining = null; // null=unknown, number=messages left before model limits out
-let _msgRateInitial   = null; // highest count seen = initial allocation for this window
-let _msgRateReset     = null; // human-readable reset string, e.g. "in 2h 30m"
-let _msgRateResetIso  = null; // raw ISO-8601 reset timestamp — used for persistence & re-formatting
 let _limitsProgress   = {};   // keyed by feature_name: {remaining, resetAfter} from /conversation/init
 let _ctxModel = '';
 let _ctxRefreshObs = null;
@@ -1012,47 +978,6 @@ function _getCtxWindow(slug) {
   const s = (slug || '').toLowerCase();
   for (const [k, v] of Object.entries(CTX_WINS)) { if (s.includes(k)) return v; }
   return 128000;
-}
-
-// Scan the DOM for ChatGPT's inline rate-limit banner.
-// Exact structure: .text-token-text-secondary > span.font-medium = "2 messages remaining."
-// Falls back to full TreeWalker if classes ever change.
-function _scanMsgRateLimit() {
-  const reCount = /(\d+)\s+messages?\s+(remaining|left)/i;
-
-  // Fast path — exact selector from real banner HTML
-  const spans = document.querySelectorAll('.text-token-text-secondary span.font-medium');
-  for (const span of spans) {
-    const m = reCount.exec(span.textContent);
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (!isNaN(n) && n >= 0) {
-        if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
-        _msgRateRemaining = n;
-        _limitsLastFetch = 0; // bypass debounce so API re-syncs model_limits
-        _saveMsgRate();
-        return;
-      }
-    }
-  }
-
-  // Fallback — full body scan in case ChatGPT changes class names
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let node;
-  while ((node = walker.nextNode())) {
-    const m = reCount.exec(node.textContent);
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (!isNaN(n) && n >= 0) {
-        if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
-        _msgRateRemaining = n;
-        _limitsLastFetch = 0;
-        _saveMsgRate();
-        return;
-      }
-    }
-  }
-  // Not found — keep last known value
 }
 
 // ---------------------------------------------------------------------------
@@ -1091,19 +1016,6 @@ async function _fetchLimitsProgress() {
     });
     _limitsProgress = prog;
     _saveLimitsProgress();
-    // model_limits is populated when you are at/near a per-model message rate limit
-    const modelLimits = data.model_limits || [];
-    if (modelLimits.length > 0) {
-      const ml = modelLimits.find(l => typeof l.remaining === 'number');
-      if (ml) {
-        if (_msgRateInitial === null || ml.remaining > _msgRateInitial) _msgRateInitial = ml.remaining;
-        _msgRateRemaining = ml.remaining;
-        // Capture reset time from API if present (field may be reset_after or resetAt)
-        const resetIso = ml.reset_after || ml.resetAt || ml.reset_at || null;
-        if (resetIso) { _msgRateResetIso = resetIso; _msgRateReset = _fmtReset(resetIso); }
-        _saveMsgRate();
-      }
-    }
     // Also capture default_model_slug if we haven't read the model yet
     if (!_ctxModel && data.default_model_slug) _ctxModel = data.default_model_slug;
   } catch (e) {
@@ -1116,9 +1028,18 @@ function _getOrCreateCtxBar() {
   if (bar) return bar;
   bar = document.createElement('div'); bar.id = 'cgpt-ctx-bar';
   const dark = isDark();
-  Object.assign(bar.style, { display:'inline-flex', alignItems:'center', gap:'6px', padding:'3px 9px', borderRadius:'8px', flexShrink:'0', marginLeft:'6px', border: dark ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(0,0,0,.12)', background: dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)', color: dark ? '#ececec' : '#111', fontSize:'11px', fontFamily:'inherit', fontWeight:'500', cursor:'pointer', userSelect:'none', position:'relative' });
+  Object.assign(bar.style, { display:'inline-flex', flexDirection:'column', alignItems:'flex-start', gap:'2px', padding:'4px 9px', borderRadius:'8px', flexShrink:'0', marginLeft:'6px', border: dark ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(0,0,0,.12)', background: dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)', color: dark ? '#ececec' : '#111', fontSize:'11px', fontFamily:'inherit', fontWeight:'500', cursor:'pointer', userSelect:'none', position:'relative' });
   const fc = dark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.40)';
-  bar.innerHTML = `<div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="cgpt-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div><span id="cgpt-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span><span id="cgpt-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span><span id="cgpt-ctx-limits" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>`;
+  // Row 1: progress bar + token count (+ fallback file count if no API data)
+  // Row 2: feature limit pills (hidden until API data arrives)
+  bar.innerHTML = `
+    <div style="display:flex;align-items:center;gap:5px;white-space:nowrap">
+      <div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="cgpt-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div>
+      <span id="cgpt-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span>
+      <span id="cgpt-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>
+    </div>
+    <div id="cgpt-ctx-limits" style="display:none;font-size:10px;opacity:.6;white-space:nowrap;line-height:1.1"></div>
+  `;
   bar.addEventListener('click', _toggleCtxPopover);
   bar.title = 'Click for context details';
 
@@ -1201,8 +1122,6 @@ function _renderCtxBar(immediate = false) {
         lEl.style.display = 'none';
       }
     }
-    // After every render, scan for rate-limit banner in case it appeared
-    _scanMsgRateLimit();
   });
 }
 
@@ -1489,16 +1408,6 @@ function _toggleCtxPopover() {
 
   const sep = `border-top:1px solid ${dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.06)'};padding-top:10px;margin-top:10px`;
 
-  // Pre-compute messages-remaining section (avoids IIFE inside template literal)
-  const mRem   = _msgRateRemaining;
-  const mInit  = _msgRateInitial;
-  const mReset = _msgRateReset;
-  const mPct   = (mRem !== null && mInit) ? Math.min(100, Math.round((mRem / mInit) * 100)) : 0;
-  const mColor = mRem !== null ? (mRem <= 3 ? '#ef4444' : mRem <= 10 ? '#f97316' : '#10a37f') : '#10a37f';
-  const mValStyle = mRem !== null
-    ? (mRem <= 3 ? 'font-weight:600;color:#ef4444' : mRem <= 10 ? 'font-weight:600;color:#f97316' : 'font-weight:600')
-    : 'font-weight:600;opacity:.4';
-
   // Pre-compute usage limits section from real /conversation/init API data
   const FEAT_META = {
     deep_research:     { icon: '\uD83D\uDD2D',          label: 'Deep Research' },
@@ -1531,30 +1440,7 @@ function _toggleCtxPopover() {
     }).join('');
     uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
   }
-  const mResetHtml = mReset ? '<span style="opacity:.4;font-weight:400;font-size:11px"> \u00b7 resets in ' + mReset + '</span>' : '';
-  let mStatus;
-  if (mRem === null) {
-    mStatus = '<span style="opacity:.35">No model rate limit active \u2014 appears here when you are near the per-model message cap</span>';
-  } else if (mRem === 0) {
-    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached</span>' + mResetHtml;
-  } else if (mRem <= 3) {
-    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Almost at limit</span>' + mResetHtml + '<br><span style="opacity:.55;font-size:11px">Model may downgrade to a lower tier shortly</span>';
-  } else if (mRem <= 10) {
-    mStatus = '<span style="color:#f97316">Approaching rate limit \u2014 use messages carefully</span>' + mResetHtml;
-  } else {
-    mStatus = '<span style="opacity:.5">Within normal usage range</span>';
-  }
-  const mBar = (mRem !== null && mInit)
-    ? `<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${mPct}%;border-radius:2px;background:${mColor}"></div></div>`
-    : '';
-  const mSection = `<div style="${sep}">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-        <span style="opacity:.5;font-size:11px">MSG LIMIT</span>
-        <span style="${mValStyle}">${mRem !== null ? mRem + ' remaining' : '\u2014'}</span>
-      </div>
-      ${mBar}
-      <div style="font-size:11px;line-height:1.55">${mStatus}</div>
-    </div>`;
+
 
   pop.innerHTML = `
     <div style="font-weight:700;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:6px">
@@ -1583,7 +1469,6 @@ function _toggleCtxPopover() {
       <div style="font-size:11px;line-height:1.55">${fStatus}</div>
     </div>
     ${uSection}
-    ${mSection}
     <div style="${sep};font-size:10px;opacity:.25;text-align:center;padding-top:8px">Click pill to close &middot; Auto-refreshes every message</div>
   `;
 
@@ -2416,10 +2301,6 @@ const _mutObs = new MutationObserver(mutations => {
   for (const mut of mutations) {
     for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
-      // If a node contains a rate-limit banner text, re-scan immediately
-      if (node.textContent?.includes('messages remaining') || node.textContent?.includes('messages left')) {
-        _scanMsgRateLimit();
-      }
       // Fast attribute checks — no DOM traversal, O(1) each
       if (!_riInject) {
         const href = node.getAttribute?.('href');
@@ -2456,8 +2337,6 @@ function _onNav() {
   _ctxToks          = 0;
   _ctxFiles         = 0;
   _ctxModel         = '';
-  // _msgRate* intentionally NOT reset here — rate limits are account-wide and
-  // persist across conversations; fresh API data will overwrite them if still active.
   _limitsProgress   = {};   // reset so popover shows fresh data for the new chat
   _limitsLastFetch  = 0;    // allow immediate re-fetch on next nav
   _ctxBarRetries = 0;
@@ -2648,7 +2527,6 @@ document.addEventListener('visibilitychange', () => {
 // BOOT
 // ---------------------------------------------------------------------------
 setTimeout(() => {
-  _loadMsgRate();          // restore persisted MSG rate-limit state before first render
   _loadLimitsProgress();   // restore persisted feature limits (deep research, files, etc.)
   _syncGet(DEFAULT_SETTINGS).then(stored => {
     if (!_extCtxOk()) return; // context died before we got storage data
