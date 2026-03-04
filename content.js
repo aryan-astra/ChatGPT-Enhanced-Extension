@@ -1084,10 +1084,10 @@ function _renderCtxBar(immediate = false) {
         lbl.textContent = '…';
       }
     }
-    // File attachment count indicator
+    // File attachment count indicator — only show when API limit data is absent
     const fEl = document.getElementById('cgpt-ctx-files');
     if (fEl) {
-      if (_ctxFiles > 0) {
+      if (_ctxFiles > 0 && !_limitsProgress.file_upload) {
         fEl.style.display = '';
         fEl.innerHTML = '\uD83D\uDCCE\uFE0F\u202F' + _ctxFiles;
       } else {
@@ -1111,6 +1111,8 @@ function _renderCtxBar(immediate = false) {
         lEl.innerHTML = entries.map(([k, v]) => {
           const col = v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
           const icon = PILL_META[k].icon;
+          const rst = _fmtReset(v.resetAfter);
+          const rstHtml = rst ? '<span style="opacity:.3;font-size:9px;margin-left:1px">' + rst + '</span>' : '';
           let val;
           if (k === 'file_upload') {
             const total = _ctxFiles + v.remaining;
@@ -1118,7 +1120,7 @@ function _renderCtxBar(immediate = false) {
           } else {
             val = icon + '\u202F' + v.remaining;
           }
-          return '<span' + (col ? ' style="color:' + col + ';font-weight:600"' : '') + '>' + val + '</span>';
+          return '<span' + (col ? ' style="color:' + col + ';font-weight:600"' : '') + '>' + val + rstHtml + '</span>';
         }).join('<span style="opacity:.35"> · </span>');
       } else {
         lEl.style.display = 'none';
@@ -1385,14 +1387,22 @@ function _toggleCtxPopover() {
   const win  = _ctxWin >= 1000 ? Math.round(_ctxWin / 1000) + 'k' : _ctxWin;
   const model = _ctxModel || document.getElementById('cgpt-badge-label')?.textContent || '—';
 
-  // File upload limit estimation — soft guidance based on known ChatGPT limits
+  // File section: use real API data if available, otherwise fall back to local estimate
   const f = _ctxFiles;
-  const estLimit = 50; // approximate per-conversation file limit (ChatGPT Plus/Pro)
+  const fuApi = _limitsProgress.file_upload;
+  const estLimit = fuApi ? (_ctxFiles + fuApi.remaining) : 50;
   const fPct = f > 0 ? Math.min(100, Math.round((f / estLimit) * 100)) : 0;
   const fColor = fPct >= 100 ? '#ef4444' : fPct >= 70 ? '#f97316' : '#10a37f';
   let fStatus;
   if (f >= estLimit) {
-    fStatus = `<span style="color:#ef4444;font-weight:600">\u26A0 File upload limit likely reached</span><br><span style="opacity:.55;font-size:11px;line-height:1.5">Start a new conversation for a fresh file quota.<br>Limits typically refresh within a few hours.</span>`;
+    fStatus = `<span style="color:#ef4444;font-weight:600">\u26A0 File upload limit reached</span><br><span style="opacity:.55;font-size:11px;line-height:1.5">Start a new conversation for a fresh quota.</span>`;
+  } else if (fuApi) {
+    // Real API data: show exact remaining
+    const remColor = fuApi.remaining <= 1 ? '#ef4444' : fuApi.remaining <= 2 ? '#f97316' : '';
+    const remStyle = remColor ? `color:${remColor};font-weight:600` : 'opacity:.5';
+    const rst = _fmtReset(fuApi.resetAfter);
+    fStatus = `<span style="${remStyle}">${fuApi.remaining} upload${fuApi.remaining !== 1 ? 's' : ''} remaining</span>`
+      + (rst ? `<span style="opacity:.35;font-size:11px"> \u00b7 resets ${rst}</span>` : '');
   } else if (f >= estLimit * 0.7) {
     fStatus = `<span style="color:#f97316;font-weight:600">\u26A0 Approaching upload limit</span><br><span style="opacity:.55;font-size:11px">${estLimit - f} more files estimated before limit</span>`;
   } else if (f > 0) {
