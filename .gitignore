@@ -1,5 +1,0 @@
-node_modules/
-.playwright-mcp/
-test-results/
-*.png
-*.zip

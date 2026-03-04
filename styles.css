@@ -42,7 +42,7 @@ a.cgpt-bulk-item:has(.cgpt-cb:checked) {
   padding:    0;
   z-index:    20;
   cursor:     pointer;
-  accent-color: #10a37f;     /* ChatGPT brand green */
+  accent-color: #ffffff;     /* white fill, black tick — matches dark sidebar */
 
   /* Hidden by default */
   opacity:        0;

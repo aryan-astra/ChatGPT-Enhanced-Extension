@@ -6,6 +6,7 @@ const DEFAULTS = {
   contextBar: false,
   contextWarning: false,
   dateGroups: false,
+  alphaMode: false,
 };
 
 function getSettings(cb) {
@@ -32,10 +33,22 @@ function renderVersion() {
   }
 }
 
+function setAlphaFeatures(enabled) {
+  const el = document.getElementById('alpha-features');
+  if (!el) return;
+  if (enabled) {
+    el.classList.add('open');
+  } else {
+    el.classList.remove('open');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   renderVersion();
 
   getSettings((settings) => {
+    setAlphaFeatures(settings.alphaMode);
+
     document.querySelectorAll('.toggle-row[data-key]').forEach((row) => {
       const key = row.dataset.key;
       const checkbox = row.querySelector('input[type="checkbox"]');
@@ -45,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       checkbox.addEventListener('change', () => {
         settings[key] = checkbox.checked;
+        if (key === 'alphaMode') setAlphaFeatures(checkbox.checked);
         saveAndNotify(settings);
       });
     });

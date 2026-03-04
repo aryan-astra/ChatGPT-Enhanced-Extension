@@ -49,6 +49,7 @@ chrome.runtime.onInstalled.addListener(() => {
     contextBar: false,
     contextWarning: false,
     dateGroups: false,
+    alphaMode: false,
   };
   chrome.storage.sync.get(Object.keys(DEFAULTS), (stored) => {
     const missing = {};

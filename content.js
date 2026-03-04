@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.3.0
+// ChatGPT Enhanced - content.js  v3.4.0
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = {
   contextBar:     false,
   contextWarning: false,
   dateGroups:     false,
+  alphaMode:      false,
 };
 let _s = { ...DEFAULT_SETTINGS };
 
@@ -225,16 +226,18 @@ function injectCheckboxes() {
     s.textContent = `
       .cgpt-cb{-webkit-appearance:none;appearance:none;position:absolute;left:6px;top:50%;
         transform:translateY(-50%);width:15px;height:15px;margin:0;padding:0;z-index:99;
-        cursor:pointer;flex-shrink:0;box-sizing:border-box;
+        cursor:pointer;flex-shrink:0;box-sizing:border-box;outline:none;
         border:1.5px solid rgba(107,114,128,.55);border-radius:3px;background:#fff;
         transition:opacity .1s,background .12s,border-color .12s;
         opacity:0;pointer-events:none;will-change:opacity;}
+      .cgpt-cb:focus{outline:none;box-shadow:none;}
       .dark .cgpt-cb{background:#1e1e22;border-color:rgba(255,255,255,.28);}
-      .cgpt-cb:checked{background:#10a37f;border-color:#10a37f;}
-      .dark .cgpt-cb:checked{background:#19c37d;border-color:#19c37d;}
-      .cgpt-cb:checked::after{content:'';display:block;width:4px;height:7px;
-        border:1.5px solid #fff;border-top:none;border-left:none;
-        transform:rotate(45deg);position:absolute;top:1px;left:4px;}`;
+      .cgpt-cb:checked{background:transparent;border-color:rgba(0,0,0,.7);}
+      .dark .cgpt-cb:checked{background:transparent;border-color:rgba(255,255,255,.7);}
+      .cgpt-cb:checked::after{content:'';display:block;width:5px;height:9px;
+        border:2.5px solid #000;border-top:none;border-left:none;
+        transform:rotate(45deg);position:absolute;top:0px;left:4px;}
+      .dark .cgpt-cb:checked::after{border-color:#fff;}`;
     document.head.appendChild(s);
   }
 
@@ -282,14 +285,15 @@ function injectCheckboxes() {
       _renderActionBar();
     });
     link.insertBefore(cb, link.firstChild);
-    // Lock indicator — purely visual; locking is done via the action bar Lock button
-    _ensureLockCss();
-    const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
-    lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
-    lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
-    if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
-    if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
-    link.appendChild(lkBtn);
+    if (_s.alphaMode) {
+      _ensureLockCss();
+      const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
+      lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
+      lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
+      if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
+      if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
+      link.appendChild(lkBtn);
+    }
     n++;
   });
   if (n) {
@@ -354,16 +358,15 @@ function _renderActionBar() {
       boxSizing:'border-box', fontFamily:'inherit', contain:'layout style'
     });
 
-    // Top row: count label + Export button
     const topRow = document.createElement('div');
     Object.assign(topRow.style, { display:'flex', alignItems:'center', gap:'6px' });
     const cnt = document.createElement('span'); cnt.id = 'cgpt-count';
     Object.assign(cnt.style, { fontWeight:'700', fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:'1' });
     const expBtn = _mkBtn('Export', () => _showExportModal());
+    expBtn.id = 'cgpt-exp-btn';
     Object.assign(expBtn.style, { fontSize:'11px', padding:'4px 8px', flexShrink:'0' });
     topRow.append(cnt, expBtn);
 
-    // Button row — all buttons flex-equal so they fill the full width neatly
     const btnRow = document.createElement('div');
     Object.assign(btnRow.style, { display:'flex', gap:'5px' });
     const lockBtn = _mkBtn('Lock', () => _bulkLock());
@@ -386,12 +389,14 @@ function _renderActionBar() {
     Object.assign(b.style, { background: danger ? '#c0392b' : btnB, color: danger ? '#fff' : clr, border:`1px solid ${danger ? 'transparent' : bdr}` });
   });
   document.getElementById('cgpt-count').textContent = `${_selectedIds.size} selected`;
-  // Update Lock/Unlock label based on current selection state
   const lockBtn = document.getElementById('cgpt-lock-btn');
   if (lockBtn) {
+    lockBtn.style.display = _s.alphaMode ? '' : 'none';
     const allLocked = _selectedIds.size > 0 && [..._selectedIds].every(id => _lockedIds.has(id));
     lockBtn.textContent = allLocked ? 'Unlock' : 'Lock';
   }
+  const expBtn = document.getElementById('cgpt-exp-btn');
+  if (expBtn) expBtn.style.display = _s.alphaMode ? '' : 'none';
 }
 
 function _mkBtn(label, fn, danger = false) {
@@ -623,6 +628,9 @@ async function _bulkAction(action) {
     try { await sleep(200); } catch (e) { if (_isCtxErr(e)) { _killScript(); return; } }
   }
   if (cnt) cnt.textContent = `Done (${done}/${ids.length}). Reloading…`;
+  // Full reload is intentional: ChatGPT's React state owns its conversation
+  // list in memory. Surgically patching the sidebar DOM would drift from that
+  // state and break navigation. A reload gives a clean, consistent UI.
   setTimeout(() => location.reload(), 1200);
 }
 
@@ -658,7 +666,9 @@ function _modal({ title, message, buttons }) {
 //   • findByText replaced with TreeWalker — traverses TEXT nodes only, not all
 //     elements. O(text-nodes) vs O(all-elements). Zero child-node scanning.
 //   • Removed the secondary gObs MutationObserver — global _mutObs handles it.
+//   • _cgptGridRetried moved from window to module scope — cleaner isolation.
 // ---------------------------------------------------------------------------
+let _cgptGridRetried = false;
 function setupCompactSidebar() {
   if (document.getElementById('cgpt-icon-grid')) return;
   const dark    = isDark();
@@ -716,15 +726,15 @@ function setupCompactSidebar() {
   ].filter(Boolean);
   if (!ITEMS.length) return;
 
-  if (ITEMS.length < 5 && !window._cgptGridRetried) {
-    window._cgptGridRetried = true;
+  if (ITEMS.length < 5 && !_cgptGridRetried) {
+    _cgptGridRetried = true;
     setTimeout(() => {
       document.querySelectorAll('[data-cgpt-grid-hidden],[data-cgpt-container-hidden]').forEach(el => {
         el.style.removeProperty('display');
         delete el.dataset.cgptGridHidden; delete el.dataset.cgptContainerHidden;
       });
       document.getElementById('cgpt-icon-grid')?.remove();
-      delete window._cgptGridRetried;
+      _cgptGridRetried = false;
       setupCompactSidebar();
     }, 500);
   }
@@ -837,12 +847,26 @@ function _readModel(btn) {
 function _rebuildBadge(btn) {
   _buildBadge(btn);
   _readModel(btn);
+  // After the badge is rebuilt, reposition the context bar (if active) to sit
+  // directly after the new badge element. No remove+recreate — just move it.
   if (_s.contextBar || _s.contextWarning) {
-    requestAnimationFrame(() => {
-      document.getElementById('cgpt-ctx-bar')?.remove();
+    const bar   = document.getElementById('cgpt-ctx-bar');
+    const badge = document.getElementById('cgpt-model-badge');
+    if (bar && badge) {
+      // Reposition: insert bar immediately after the newly placed badge
+      const banner = document.querySelector(CONFIG.sel.banner);
+      if (banner && banner.contains(badge)) {
+        let ref = badge;
+        while (ref.parentElement && ref.parentElement !== banner) ref = ref.parentElement;
+        banner.insertBefore(bar, ref.nextSibling);
+      } else if (badge.parentElement) {
+        badge.parentElement.insertBefore(bar, badge.nextSibling);
+      }
+    } else if (!bar) {
+      // Bar was removed externally — recreate
       _getOrCreateCtxBar();
-      _renderCtxBar();
-    });
+    }
+    _renderCtxBar();
   }
 }
 
@@ -867,7 +891,7 @@ function setupModelBadge(force = false) {
         });
       }
     });
-    _bannerObs.observe(bannerEl, { childList: true, subtree: false });
+  _bannerObs.observe(bannerEl, { childList: true, subtree: true });
   }
 }
 
@@ -899,10 +923,12 @@ const CTX_WINS = {
 };
 let _ctxWin  = 128000;
 let _ctxToks = 0;
-let _ctxFiles = 0;           // attachment/file count in current conversation
-let _ctxModel = '';           // latest model slug from conversation API
-let _ctxRefreshObs = null;   // MutationObserver for auto-refresh after messages
-let _ctxRefreshTimer = 0;    // debounce timer for refresh
+let _ctxFiles = 0;
+let _ctxModel = '';
+let _ctxRefreshObs = null;
+let _ctxRefreshTimer = 0;
+let _lastCtxFetch = 0;
+let _watchdogTimer = 0;
 
 function _getCtxWindow(slug) {
   const s = (slug || '').toLowerCase();
@@ -920,9 +946,23 @@ function _getOrCreateCtxBar() {
   bar.innerHTML = `<div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="cgpt-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div><span id="cgpt-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span><span id="cgpt-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>`;
   bar.addEventListener('click', _toggleCtxPopover);
   bar.title = 'Click for context details';
-  const badge = document.getElementById('cgpt-model-badge');
-  if (badge?.parentElement) badge.parentElement.insertBefore(bar, badge.nextSibling);
-  else { const bn = document.querySelector(CONFIG.sel.banner); if (bn) bn.appendChild(bar); }
+
+  // Insertion strategy: we must insert at the BANNER's top-level flex row, not
+  // deep inside a child container that may have overflow:hidden or max-width.
+  // Walk up from the anchor (badge or model button) to the direct child of the
+  // banner element so we're always in the unconstrained top-level flex row.
+  const banner = document.querySelector(CONFIG.sel.banner);
+  const anchor = document.getElementById('cgpt-model-badge')
+              ?? document.querySelector(CONFIG.sel.modelBtn);
+  if (anchor && banner && banner.contains(anchor)) {
+    let ref = anchor;
+    while (ref.parentElement && ref.parentElement !== banner) ref = ref.parentElement;
+    banner.insertBefore(bar, ref.nextSibling);
+  } else if (anchor?.parentElement) {
+    anchor.parentElement.insertBefore(bar, anchor.nextSibling);
+  } else if (banner) {
+    banner.appendChild(bar);
+  }
   return bar;
 }
 
@@ -1028,8 +1068,8 @@ async function _parseSSE(stream, encChatId) {
 }
 
 function _installFetchInterceptor() {
-  if (window._cgptFetchHooked) return;
-  window._cgptFetchHooked = true;
+  if (_cgptFetchHooked) return;
+  _cgptFetchHooked = true;
   const _orig = window.fetch;
   window.fetch = async function (input, init) {
     const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
@@ -1053,8 +1093,9 @@ function _installFetchInterceptor() {
   };
 }
 
-async function _fetchCtxData(chatId, retries = 2) {
+async function _fetchCtxData(chatId, retries = 5) {
   if (!chatId || (!_s.contextBar && !_s.contextWarning) || !_extCtxOk()) return;
+  _lastCtxFetch = Date.now();
   try {
     let h;
     try { h = await getHeaders(); } catch (e) { if (_isCtxErr(e)) _killScript(); return; }
@@ -1063,7 +1104,12 @@ async function _fetchCtxData(chatId, retries = 2) {
     try { r = await fetch(`${CONFIG.api.conversationBase}${chatId}`, Object.keys(h).length ? { headers: h } : undefined); }
     catch (e) { if (_isCtxErr(e)) _killScript(); return; }
     if (!_extCtxOk()) return;
-    if (r.status === 401 && retries > 0) { setTimeout(() => { if (!_dead) _fetchCtxData(chatId, retries - 1); }, 3000); return; }
+    if (r.status === 401 && retries > 0) {
+      _hdrCache = null; // bust stale cached token so next attempt re-reads from storage
+      const delay = Object.keys(h).length === 0 ? 1500 : 3000; // faster retry when no auth was stored
+      setTimeout(() => { if (!_dead) _fetchCtxData(chatId, retries - 1); }, delay);
+      return;
+    }
     if (!r.ok) return;
     let data;
     try { data = await r.json(); } catch (e) { if (_isCtxErr(e)) _killScript(); return; }
@@ -1083,8 +1129,12 @@ async function _fetchCtxData(chatId, retries = 2) {
       if (Array.isArray(atts)) files += atts.length;
       const parts = msg.content?.parts;
       if (Array.isArray(parts)) parts.forEach(p => {
-        if (typeof p === 'string') chars += p.length;
-        else if (p && (p.asset_pointer || p.content_type === 'image_asset_pointer')) files++;
+        if (typeof p === 'string') {
+          chars += p.length; // legacy format: parts is array of plain strings
+        } else if (p && typeof p === 'object') {
+          if (typeof p.text === 'string') chars += p.text.length; // new format: {type:'text', text:'...'}
+          else if (p.asset_pointer || p.content_type === 'image_asset_pointer') files++;
+        }
       });
     });
     _ctxToks  = maxToks > 0 ? maxToks : Math.round(chars / 4);
@@ -1104,6 +1154,8 @@ async function _fetchCtxData(chatId, retries = 2) {
   }
 }
 
+// Retry counter for context bar setup when the banner isn't in the DOM yet
+let _ctxBarRetries = 0;
 function setupContextBar() {
   _installFetchInterceptor(); // lazy — only when this feature is on
   // Sync model window from button immediately (no timer)
@@ -1112,7 +1164,17 @@ function setupContextBar() {
     const m = (btn.getAttribute('aria-label') || '').match(/current model is (.+)/i);
     if (m) _ctxWin = _getCtxWindow(m[1].trim());
   }
-  if (_s.contextBar) _getOrCreateCtxBar();
+  if (_s.contextBar) {
+    const banner = document.querySelector(CONFIG.sel.banner);
+    if (!banner && _ctxBarRetries < 6) {
+      // Banner not rendered yet (very early load) — retry shortly
+      _ctxBarRetries++;
+      setTimeout(() => { if (!_dead && (_s.contextBar || _s.contextWarning)) setupContextBar(); }, 400);
+      return;
+    }
+    _ctxBarRetries = 0;
+    _getOrCreateCtxBar();
+  }
   const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
   if (chatId) { _fetchCtxData(chatId); _setupCtxRefreshObserver(); }
   else _renderCtxBar();
@@ -1141,17 +1203,16 @@ function _setupCtxRefreshObserver() {
     _ctxRefreshTimer = setTimeout(() => {
       const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
       if (chatId && (_s.contextBar || _s.contextWarning)) {
+        _lastCtxFetch = Date.now();
         _fetchCtxData(chatId);
-        // Also refresh model badge
         if (_s.modelBadge) {
           const btn = document.querySelector(CONFIG.sel.modelBtn);
           if (btn) _readModel(btn);
         }
       }
-    }, 2500); // 2.5s debounce — lets streaming finish before re-fetching
+    }, 1200);
   });
-  const target = document.querySelector('main') || document.body;
-  _ctxRefreshObs.observe(target, { childList: true, subtree: true });
+  _ctxRefreshObs.observe(document.body, { childList: true, subtree: true });
 }
 
 function _teardownCtxRefreshObserver() {
@@ -1493,11 +1554,10 @@ async function _toggleLockChat(chatId, link) {
 
 let _vaultHdrRetry = 0;
 function _renderVaultHeader() {
+  if (!_s.alphaMode) { document.getElementById('cgpt-vault-hdr')?.remove(); return; }
   const count = _lockedIds.size;
   let hdr = document.getElementById('cgpt-vault-hdr');
 
-  // Find the correct sidebar nav — use closest('nav') from a real sidebar link
-  // so we don't accidentally pick up a different <nav> on the page.
   const firstLink = document.querySelector(CONFIG.sel.sidebarLink);
   const navEl = firstLink?.closest('nav') ?? document.querySelector('nav[aria-label]') ?? document.querySelector('nav');
   if (!navEl) {
@@ -1721,10 +1781,12 @@ function _restoreUserDisplay() {
 // then re-fire the original send event so React submits the encoded value.
 // ---------------------------------------------------------------------------
 let _cgptSendInProgress = false;
+let _cgptSendHooked    = false;  // prevents double-installation of send interceptor
+let _cgptFetchHooked   = false;  // prevents double-installation of fetch interceptor
 
 function _setupSendInterceptor() {
-  if (window._cgptSendHooked) return;
-  window._cgptSendHooked = true;
+  if (_cgptSendHooked) return;
+  _cgptSendHooked = true;
 
   const _encode = (e) => {
     if (_cgptSendInProgress) return;
@@ -1797,40 +1859,43 @@ function _teardownDecryptObserver() {
 function _showExportModal() {
   const dark = isDark();
   const overlay = document.createElement('div');
-  Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.65)', zIndex:'1000001', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
+  Object.assign(overlay.style, { position:'fixed', inset:'0', background:'rgba(0,0,0,.6)', zIndex:'1000001', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'inherit' });
   const box = document.createElement('div');
-  Object.assign(box.style, { background: dark ? '#1a1a1e' : '#fff', color: dark ? '#ececec' : '#111', borderRadius:'18px', padding:'28px', width:'min(360px,92vw)', boxShadow:'0 24px 64px rgba(0,0,0,.55)', display:'flex', flexDirection:'column', gap:'14px' });
-  const ttl = document.createElement('div'); ttl.style.cssText='font-weight:700;font-size:16px';
+  Object.assign(box.style, { background:dark?'#111':'#fff', color:dark?'#f0f0f0':'#111', border:dark?'1px solid rgba(255,255,255,.1)':'1px solid rgba(0,0,0,.1)', borderRadius:'10px', padding:'22px', width:'min(320px,92vw)', boxShadow:'0 16px 48px rgba(0,0,0,.4)', display:'flex', flexDirection:'column', gap:'12px' });
+  const ttl = document.createElement('div'); ttl.style.cssText='font-weight:700;font-size:14.5px;letter-spacing:-.01em';
   ttl.textContent = `Export ${_selectedIds.size} conversation${_selectedIds.size>1?'s':''}`;
-  const sub = document.createElement('div'); sub.style.cssText='font-size:12px;opacity:.5';
-  sub.textContent = 'Choose a format:';
+  const sub = document.createElement('div'); sub.style.cssText=`font-size:11.5px;opacity:.4`;
+  sub.textContent = 'Select a format:';
   const formats = [
-    { id:'md',  label:'Markdown (.md)',  desc:'Preserves code blocks, headers, bold text' },
-    { id:'txt', label:'Plain Text (.txt)',desc:'Clean, simple, universally readable' },
-    { id:'pdf', label:'PDF',              desc:'Beautiful styled document — opens browser print' },
+    { id:'md',  label:'Markdown (.md)',   desc:'Code blocks, headers, formatting' },
+    { id:'txt', label:'Plain Text (.txt)', desc:'Clean transcript, universally readable' },
+    { id:'pdf', label:'PDF',               desc:'Whitepaper layout via print dialog' },
   ];
   let chosen = 'md';
-  const fmtWrap = document.createElement('div'); fmtWrap.style.cssText='display:flex;flex-direction:column;gap:7px';
+  const fmtWrap = document.createElement('div'); fmtWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
+  const selBorder = dark?'#fff':'#000';
+  const selBg     = dark?'rgba(255,255,255,.06)':'rgba(0,0,0,.04)';
+  const defBorder = dark?'rgba(255,255,255,.1)':'rgba(0,0,0,.09)';
   formats.forEach(f => {
     const btn = document.createElement('button'); btn.dataset.fmt = f.id;
-    Object.assign(btn.style, { display:'flex', alignItems:'center', gap:'12px', padding:'11px 13px', border: dark ? '1.5px solid rgba(255,255,255,.1)' : '1.5px solid rgba(0,0,0,.09)', borderRadius:'11px', background:'none', cursor:'pointer', fontFamily:'inherit', color: dark ? '#ececec' : '#111', textAlign:'left', transition:'border-color .12s,background .12s' });
-    btn.innerHTML = `<span><span style="display:block;font-weight:600;font-size:13px">${f.label}</span><span style="display:block;font-size:11px;opacity:.45;margin-top:1px">${f.desc}</span></span>`;
-    const mark = () => { chosen=f.id; fmtWrap.querySelectorAll('button').forEach(b=>{b.style.borderColor=b.dataset.fmt===f.id?'#10a37f':(dark?'rgba(255,255,255,.1)':'rgba(0,0,0,.09)');b.style.background=b.dataset.fmt===f.id?(dark?'rgba(16,163,127,.12)':'rgba(16,163,127,.07)'):'none';}); };
+    Object.assign(btn.style, { display:'flex', alignItems:'center', gap:'10px', padding:'9px 11px', border:`1.5px solid ${defBorder}`, borderRadius:'7px', background:'none', cursor:'pointer', fontFamily:'inherit', color:dark?'#f0f0f0':'#111', textAlign:'left', transition:'border-color .1s,background .1s' });
+    btn.innerHTML = `<span><span style="display:block;font-weight:600;font-size:12.5px">${f.label}</span><span style="display:block;font-size:10.5px;opacity:.4;margin-top:1px">${f.desc}</span></span>`;
+    const mark = () => { chosen=f.id; fmtWrap.querySelectorAll('button').forEach(b=>{const a=b.dataset.fmt===f.id; b.style.borderColor=a?selBorder:defBorder; b.style.background=a?selBg:'none';}); };
     btn.addEventListener('click', mark); if (f.id==='md') setTimeout(mark,0);
     fmtWrap.appendChild(btn);
   });
-  const prog = document.createElement('div'); prog.style.cssText='font-size:12px;opacity:.5;min-height:14px;text-align:center';
+  const prog = document.createElement('div'); prog.style.cssText='font-size:11px;opacity:.4;min-height:14px;text-align:center';
   const expBtn = document.createElement('button'); expBtn.textContent='Export';
-  Object.assign(expBtn.style, { background:'#10a37f', color:'#fff', border:'none', borderRadius:'11px', padding:'12px', fontSize:'14px', fontWeight:'600', cursor:'pointer', fontFamily:'inherit', transition:'opacity .1s' });
-  expBtn.addEventListener('mouseenter',()=>expBtn.style.opacity='.85');
+  Object.assign(expBtn.style, { background:dark?'#fff':'#000', color:dark?'#000':'#fff', border:'none', borderRadius:'7px', padding:'10px', fontSize:'13px', fontWeight:'600', cursor:'pointer', fontFamily:'inherit', transition:'opacity .1s' });
+  expBtn.addEventListener('mouseenter',()=>expBtn.style.opacity='.75');
   expBtn.addEventListener('mouseleave',()=>expBtn.style.opacity='1');
   expBtn.addEventListener('click', async () => {
-    expBtn.disabled=true; expBtn.style.opacity='.5'; expBtn.textContent='Exporting…';
+    expBtn.disabled=true; expBtn.style.opacity='.35'; expBtn.textContent='Exporting…';
     try { await _runExport(chosen, prog); overlay.remove(); }
     catch(e) { prog.textContent='Error: '+e.message; expBtn.disabled=false; expBtn.style.opacity='1'; expBtn.textContent='Export'; }
   });
   const cancelBtn = document.createElement('button'); cancelBtn.textContent='Cancel';
-  Object.assign(cancelBtn.style, { background:'none', color: dark?'rgba(255,255,255,.35)':'rgba(0,0,0,.35)', border:'none', fontSize:'13px', cursor:'pointer', fontFamily:'inherit' });
+  Object.assign(cancelBtn.style, { background:'none', color:dark?'rgba(255,255,255,.3)':'rgba(0,0,0,.3)', border:'none', fontSize:'12px', cursor:'pointer', fontFamily:'inherit' });
   cancelBtn.onclick = () => overlay.remove();
   overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
   box.append(ttl, sub, fmtWrap, prog, expBtn, cancelBtn);
@@ -1853,7 +1918,8 @@ async function _runExport(format, progress) {
   }
   if (!convos.length) throw new Error('No conversations could be fetched');
   const date = new Date().toISOString().slice(0,10);
-  const base = convos.length===1 ? (convos[0].title||'chat').replace(/[^\w\s-]/g,'').trim().slice(0,50) : `chatgpt-export-${date}`;
+  const sanitize = t => (t||'chat').replace(/[^\w\s-]/g,'').trim().replace(/\s+/g,'_').slice(0,60)||'chat';
+  const base = convos.length===1 ? `${sanitize(convos[0].title)}_${date}` : `chatgpt-export_${date}`;
   if (format==='md')  _downloadBlob(_buildMd(convos),  `${base}.md`,  'text/markdown');
   if (format==='txt') _downloadBlob(_buildTxt(convos), `${base}.txt`, 'text/plain');
   if (format==='pdf') _printPdf(_buildPdfHtml(convos));
@@ -1886,7 +1952,7 @@ function _walkMessages(data) {
     if (msg?.author && msg?.content) {
       const role  = msg.author.role;
       const parts = msg.content.parts;
-      const text  = Array.isArray(parts) ? parts.filter(p => typeof p==='string').join('') : (msg.content.text||'');
+      const text  = Array.isArray(parts) ? parts.map(p => typeof p==='string' ? p : (p&&typeof p==='object'&&typeof p.text==='string'?p.text:'')).join('') : (msg.content.text||'');
       if ((role==='user'||role==='assistant') && text.trim()) {
         path.unshift({ role, text: text.trim(), time: msg.create_time });
       }
@@ -1903,16 +1969,21 @@ function _fmtTime(ts) {
 }
 
 function _buildMd(convos) {
-  const out = [`# ChatGPT Export`, `*Exported ${new Date().toLocaleString()}*`, ''];
+  const date = new Date().toISOString().slice(0,10);
+  const modelName = document.getElementById('cgpt-badge-label')?.textContent||'ChatGPT';
+  const out = [];
   convos.forEach((c, ci) => {
-    if (ci>0) out.push('', '---', '');
-    out.push(`## ${c.title}`);
-    if (c.create_time) out.push(`*${_fmtTime(c.create_time)}*`);
+    const msgs = Array.isArray(c?.msgs) ? c.msgs : [];
+    if (ci > 0) out.push('', '---', '');
+    out.push('# ' + (c?.title||'Untitled'), '');
+    out.push('Model: ' + modelName);
+    out.push('Exported: ' + date);
+    out.push('Source: ChatGPT Enhanced');
     out.push('');
-    c.msgs.forEach(m => {
-      out.push(m.role==='user' ? '### You' : '### ChatGPT');
-      out.push('');
-      out.push(m.text);
+    msgs.forEach(m => {
+      const role = m?.role === 'user' ? 'USER' : 'ASSISTANT';
+      out.push('## ' + role, '');
+      out.push(typeof m?.text === 'string' ? m.text : '');
       out.push('');
     });
   });
@@ -1920,21 +1991,22 @@ function _buildMd(convos) {
 }
 
 function _buildTxt(convos) {
-  const HR = '─'.repeat(64);
-  const out = [`ChatGPT Export — ${new Date().toLocaleString()}`, HR, ''];
+  const SEP = '-'.repeat(72);
+  const date = new Date().toISOString().slice(0,10);
+  const modelName = document.getElementById('cgpt-badge-label')?.textContent||'ChatGPT';
+  const out = [];
   convos.forEach((c, ci) => {
-    if (ci>0) out.push('', HR, '');
-    out.push(`▌ ${c.title.toUpperCase()}`);
-    if (c.create_time) out.push(`  ${_fmtTime(c.create_time)}`);
+    const msgs = Array.isArray(c?.msgs) ? c.msgs : [];
+    if (ci > 0) out.push('', SEP, '');
+    out.push((c?.title||'UNTITLED').toUpperCase());
     out.push('');
-    c.msgs.forEach(m => {
-      out.push(m.role==='user' ? 'YOU:' : 'CHATGPT:');
-      m.text.split('\n').forEach(line => {
-        if (line.length<=80) { out.push('  '+line); return; }
-        let rem=line;
-        while (rem.length>80) { const p=rem.lastIndexOf(' ',80); const cut=p>0?p:80; out.push('  '+rem.slice(0,cut)); rem=rem.slice(cut+1); }
-        if (rem) out.push('  '+rem);
-      });
+    out.push('Model:    ' + modelName);
+    out.push('Exported: ' + date);
+    out.push('Source:   ChatGPT Enhanced');
+    out.push('', SEP, '');
+    msgs.forEach(m => {
+      out.push('[' + (m?.role==='user' ? 'USER' : 'ASSISTANT') + ']');
+      out.push(typeof m?.text === 'string' ? m.text : '');
       out.push('');
     });
   });
@@ -1942,54 +2014,65 @@ function _buildTxt(convos) {
 }
 
 function _buildPdfHtml(convos) {
-  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const fmtBody = raw => esc(raw)
-    .replace(/```(\w*)\n?([\s\S]*?)```/g, (_,lang,code)=>`<pre class="cb"><code${lang?` class="lang-${lang}"`:''}>${code}</code></pre>`)
-    .replace(/`([^`]+)`/g,'<code class="ic">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g,'<em>$1</em>')
-    .replace(/\n/g,'<br>');
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fmtBody = raw => {
+    let s = esc(raw);
+    const BT = String.fromCharCode(96);
+    const reCodeBlock = new RegExp(BT+BT+BT+'(\\w*)\\n?([\\s\\S]*?)'+BT+BT+BT, 'g');
+    const reInlineCode = new RegExp(BT+'([^'+BT+']+)'+BT, 'g');
+    s = s.replace(reCodeBlock, function(_,lang,code){ return '<pre class="cb"><code' + (lang?' class="lang-'+lang+'"':'') + '>' + code + '</code></pre>'; });
+    s = s.replace(reInlineCode, '<code class="ic">$1</code>');
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    s = s.replace(/\n/g, '<br>');
+    return s;
+  };
+  const date = new Date().toISOString().slice(0,10);
+  const modelName = document.getElementById('cgpt-badge-label')?.textContent||'ChatGPT';
+  const totalMsgs = convos.reduce((a,c)=>a+(Array.isArray(c?.msgs)?c.msgs.length:0),0);
+  const singleTitle = convos.length===1 ? esc(convos[0]?.title||'Untitled') : null;
+  const docTitle = singleTitle || 'ChatGPT Enhanced Export';
   const msgsHtml = convos.map((c,ci) => {
+    const msgList = Array.isArray(c?.msgs) ? c.msgs : [];
     const sep = ci>0 ? '<div class="conv-sep"></div>' : '';
-    const msgs = c.msgs.map(m => `
-      <div class="msg ${m.role==='user'?'mu':'ma'}">
-        <div class="role">${m.role==='user'?'You':'ChatGPT'}</div>
-        <div class="body">${fmtBody(m.text)}</div>
-      </div>`).join('');
-    return `${sep}<h2 class="ctitle">${esc(c.title||'Untitled')}</h2>${c.create_time?`<p class="cdate">${_fmtTime(c.create_time)}</p>`:''}<div class="msgs">${msgs}</div>`;
+    const hdr = convos.length>1 ? '<h2 class="ctitle">'+esc(c?.title||'Untitled')+'</h2>' : '';
+    const msgs = msgList.map(m => {
+      const isUser = m?.role === 'user';
+      const label = isUser ? 'USER' : 'ASSISTANT';
+      const cls = isUser ? 'mu' : 'ma';
+      return '<div class="msg '+cls+'"><div class="role">'+label+'</div><div class="body">'+fmtBody(m?.text)+'</div></div>';
+    }).join('');
+    return sep+hdr+'<div class="msgs">'+msgs+'</div>';
   }).join('');
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
-<title>ChatGPT Export</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#1a1a1a;font-size:14px;line-height:1.75;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{max-width:740px;margin:0 auto;padding:52px 44px}
-.exp-hdr{padding-bottom:24px;margin-bottom:40px;border-bottom:2px solid #efefef}
-.exp-hdr h1{font-size:22px;font-weight:700;display:flex;align-items:center;gap:10px}
-.exp-hdr .meta{font-size:12px;color:#999;margin-top:6px}
-.conv-sep{border:none;border-top:2px solid #f0f0f0;margin:48px 0;page-break-after:always}
-.ctitle{font-size:18px;font-weight:700;color:#111;margin-bottom:5px}
-.cdate{font-size:12px;color:#aaa;margin-bottom:28px}
-.msgs{display:flex;flex-direction:column;gap:16px}
-.msg{border-radius:12px;padding:16px 20px;page-break-inside:avoid}
-.mu{background:#f0faf7;border-left:3.5px solid #10a37f}
-.ma{background:#fafafa;border-left:3.5px solid #e0e0e0}
-.role{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px}
-.mu .role{color:#0d8a6b}
-.ma .role{color:#888}
-.body{color:#1a1a1a;white-space:pre-wrap;word-wrap:break-word}
-pre.cb{background:#1e1e2e;color:#cdd6f4;border-radius:10px;padding:16px 20px;margin:12px 0;overflow-x:auto;font-family:'JetBrains Mono',Consolas,monospace;font-size:12.5px;line-height:1.6;page-break-inside:avoid;white-space:pre}
-code.ic{background:rgba(0,0,0,.07);color:#c2185b;padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:12px}
-@media print{
-  body{background:#fff}
-  .page{padding:0;max-width:100%}
-  .conv-sep{page-break-after:always}
-  .msg{page-break-inside:avoid}
-}
-</style></head><body><div class="page">
-<div class="exp-hdr"><h1>ChatGPT Export</h1><div class="meta">Exported ${new Date().toLocaleString()} &nbsp;·&nbsp; ${convos.length} conversation${convos.length>1?'s':''} &nbsp;·&nbsp; ${convos.reduce((a,c)=>a+c.msgs.length,0)} messages</div></div>
-${msgsHtml}</div></body></html>`;
+  const metaExtra = convos.length>1 ? '<br>Conversations: '+convos.length+' &middot; Messages: '+totalMsgs : '';
+  const css = [
+    '@page{size:A4;margin:1in}',
+    '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}',
+    'body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;background:#fff;color:#1a1a1a;font-size:12pt;line-height:1.65;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+    '.page{max-width:680px;margin:0 auto;padding:48px 0}',
+    '.doc-title{font-size:22pt;font-weight:700;color:#000;line-height:1.2}',
+    '.meta{font-size:9pt;color:#888;line-height:1.9;margin-top:12px}',
+    '.divider{border:none;border-top:1px solid #000;margin:20px 0 32px}',
+    '.conv-sep{border:none;border-top:1px solid #d0d0d0;margin:40px 0;page-break-after:always}',
+    '.ctitle{font-size:15pt;font-weight:700;color:#000;margin-bottom:20px;page-break-after:avoid}',
+    '.msgs{display:flex;flex-direction:column}',
+    '.msg{padding:14px 0 14px 16px;border-left:1px solid rgba(0,0,0,.15);margin-bottom:18px;page-break-inside:avoid}',
+    '.role{font-size:7.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;color:#000}',
+    '.body{color:#1a1a1a;white-space:pre-wrap;word-wrap:break-word;font-size:11pt;line-height:1.65}',
+    'pre.cb{background:#f5f5f5;color:#1a1a1a;border:1px solid #ccc;border-radius:4px;padding:14px 16px;margin:12px 0;font-family:Consolas,Courier New,monospace;font-size:9pt;line-height:1.55;page-break-inside:avoid;white-space:pre;overflow-x:auto}',
+    'code.ic{background:#f0f0f0;color:#1a1a1a;padding:1px 5px;border:1px solid #ddd;border-radius:3px;font-family:Consolas,Courier New,monospace;font-size:9pt}',
+    'strong{font-weight:700}em{font-style:italic}',
+    '.footer{margin-top:48px;padding-top:12px;border-top:1px solid #e0e0e0;font-size:8pt;color:#aaa;text-align:center}',
+    '@media print{.page{padding:0;max-width:100%}.conv-sep{page-break-after:always}.msg{page-break-inside:avoid}}'
+  ].join('\n');
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>'+docTitle+'</title>\n'+
+    '<style>\n'+css+'\n</style></head><body><div class="page">\n'+
+    '<div class="doc-title">'+docTitle+'</div>\n'+
+    '<div class="meta">Model: '+modelName+'<br>Exported: '+date+'<br>Source: ChatGPT Enhanced'+metaExtra+'</div>\n'+
+    '<hr class="divider">\n'+
+    msgsHtml+'\n'+
+    '<div class="footer">ChatGPT Enhanced</div>\n'+
+    '</div></body></html>';
 }
 
 function _downloadBlob(content, filename, mime) {
@@ -2003,7 +2086,6 @@ function _printPdf(html) {
   const w = window.open('', '_blank', 'width=940,height=720');
   if (!w) { alert('Pop-up blocked. Allow pop-ups for chatgpt.com, then try again.'); return; }
   w.document.open(); w.document.write(html); w.document.close();
-  // Wait for fonts/images to settle before triggering the print dialog
   setTimeout(() => { try { w.focus(); w.print(); } catch {} }, 900);
 }
 
@@ -2024,7 +2106,10 @@ function _schedInject() {
   if (_riInject) return; _riInject = true;
   requestAnimationFrame(() => {
     _riInject = false;
-    if (!_dead && _s.bulkActions) { injectCheckboxes(); _renderVaultHeader(); }
+    if (!_dead && _s.bulkActions) {
+      injectCheckboxes();
+      if (_s.alphaMode) _renderVaultHeader();
+    }
   });
 }
 function _schedObserve() {
@@ -2084,10 +2169,13 @@ function _onNav() {
   _ctxToks   = 0;
   _ctxFiles  = 0;
   _ctxModel  = '';
+  _ctxBarRetries = 0;
+  _lastCtxFetch  = 0;
+  _teardownCtxRefreshObserver();
   document.getElementById('cgpt-ctx-bar')?.remove();
   document.getElementById('cgpt-ctx-warn')?.remove();
   document.getElementById('cgpt-ctx-popover')?.remove();
-  delete window._cgptGridRetried;
+  _cgptGridRetried = false;
 
   requestAnimationFrame(() => {
     if (_s.compactSidebar) setupCompactSidebar();
@@ -2100,7 +2188,10 @@ function _onNav() {
         if (id) { _fetchCtxData(id); _setupCtxRefreshObserver(); }
         else { _teardownCtxRefreshObserver(); _renderCtxBar(); }
       }
-      if (_s.bulkActions) { injectCheckboxes(); setupVault(); }
+      if (_s.bulkActions) {
+        injectCheckboxes();
+        if (_s.alphaMode) setupVault();
+      }
       // Decrypt observer: active only when viewing an encrypted chat
       const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
       if (_navId && _encryptedIds.has(_navId)) {
@@ -2129,6 +2220,27 @@ history.replaceState = function (...a) {
 window.addEventListener('popstate', _onNav, { passive: true });
 
 // ---------------------------------------------------------------------------
+// WATCHDOG — periodic self-healing ticker (8-second interval)
+// Re-reads model badge and re-fetches ctx if MutationObserver went quiet.
+// ---------------------------------------------------------------------------
+function _startWatchdog() {
+  if (_watchdogTimer) return;
+  _watchdogTimer = setInterval(() => {
+    if (_dead) { clearInterval(_watchdogTimer); _watchdogTimer = 0; return; }
+    const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+    if (!chatId) return;
+    if (_s.modelBadge) {
+      const btn = document.querySelector(CONFIG.sel.modelBtn);
+      if (btn) _readModel(btn);
+    }
+    if ((_s.contextBar || _s.contextWarning) && Date.now() - _lastCtxFetch > 7000) {
+      _lastCtxFetch = Date.now();
+      _fetchCtxData(chatId);
+    }
+  }, 8000);
+}
+
+// ---------------------------------------------------------------------------
 // SETTINGS — instant apply handler
 // ---------------------------------------------------------------------------
 function _apply(key) {
@@ -2137,8 +2249,31 @@ function _apply(key) {
       if (_s.lagFix) { setupVirtualization(); observeMessages(); }
       else            teardownVirtualization();
       break;
+    case 'alphaMode':
+      if (_s.alphaMode) {
+        if (_s.bulkActions) {
+          _ensureLockCss();
+          document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
+            if (link.querySelector('.cgpt-lock-icon')) return;
+            const chatId = link.dataset.cgptId;
+            const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
+            lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
+            lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
+            if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
+            if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
+            link.appendChild(lkBtn);
+          });
+          _renderVaultHeader();
+        }
+        _renderActionBar();
+      } else {
+        document.getElementById('cgpt-vault-hdr')?.remove();
+        document.querySelectorAll('.cgpt-lock-icon').forEach(el => el.remove());
+        _renderActionBar();
+      }
+      break;
     case 'bulkActions':
-      if (_s.bulkActions) { injectCheckboxes(); _renderVaultHeader(); break; }
+      if (_s.bulkActions) { injectCheckboxes(); if (_s.alphaMode) _renderVaultHeader(); break; }
       document.querySelectorAll('.cgpt-cb').forEach(cb => cb.remove());
       document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
         link.style.removeProperty('position'); link.style.removeProperty('overflow'); link.style.removeProperty('padding-left');
@@ -2155,7 +2290,7 @@ function _apply(key) {
       document.getElementById('cgpt-compact-css')?.remove();
       document.querySelectorAll('[data-cgpt-grid-hidden]').forEach(el => { el.style.removeProperty('display'); delete el.dataset.cgptGridHidden; });
       document.querySelectorAll('[data-cgpt-container-hidden]').forEach(el => { el.style.removeProperty('display'); delete el.dataset.cgptContainerHidden; });
-      delete window._cgptGridWatcher; delete window._cgptGridRetried;
+      _cgptGridRetried = false;
       break;
     case 'modelBadge':
       if (_s.modelBadge) { setupModelBadge(true); break; }
@@ -2202,6 +2337,22 @@ window.addEventListener('error', ev => {
   if (_isCtxErr(src)) { ev.preventDefault(); _killScript(); }
 });
 
+// Re-sync model + context immediately after the tab becomes visible again
+// (e.g. user switches back from another tab after a long absence).
+document.addEventListener('visibilitychange', () => {
+  if (_dead || document.hidden) return;
+  const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
+  if (!chatId) return;
+  if (_s.modelBadge) {
+    const btn = document.querySelector(CONFIG.sel.modelBtn);
+    if (btn) _readModel(btn);
+  }
+  if (_s.contextBar || _s.contextWarning) {
+    _lastCtxFetch = Date.now();
+    _fetchCtxData(chatId);
+  }
+}, { passive: true });
+
 // ---------------------------------------------------------------------------
 // BOOT
 // ---------------------------------------------------------------------------
@@ -2219,12 +2370,16 @@ setTimeout(() => {
     _installFetchInterceptor();
     _setupSendInterceptor();
     _idle(() => {
-      if (_s.bulkActions)    { injectCheckboxes(); setupVault(); }
+      if (_s.bulkActions) {
+        injectCheckboxes();
+        if (_s.alphaMode) setupVault();
+      }
       if (_s.compactSidebar) setupCompactSidebar();
       if (_s.dateGroups)     setupDateGroups();
     });
+    _startWatchdog();
 
-    console.log('[CGPT+] v3.3.0 ready');
+    console.log('[CGPT+] v3.4.2 ready');
   });
 }, 150);
 
