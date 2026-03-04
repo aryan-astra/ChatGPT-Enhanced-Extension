@@ -941,6 +941,7 @@ let _ctxToks = 0;
 let _ctxFiles = 0;
 let _msgRateRemaining = null; // null=unknown, number=messages left before model limits out
 let _msgRateInitial   = null; // highest count seen = initial allocation for this window
+let _msgRateReset     = null; // ISO or relative string for when the msg rate limit resets
 let _limitsProgress   = {};   // keyed by feature_name: {remaining, resetAfter} from /conversation/init
 let _ctxModel = '';
 let _ctxRefreshObs = null;
@@ -955,23 +956,27 @@ function _getCtxWindow(slug) {
 }
 
 // Scan the DOM for ChatGPT's inline rate-limit notice ("X messages remaining").
-// Called after every context bar render so the count stays fresh.
+// ChatGPT renders these banners outside <main> (portals/toasts), so we must
+// scan the full document.body. We also grab the reset time from the same banner.
 function _scanMsgRateLimit() {
-  // ChatGPT shows notices like "5 messages remaining" or "3 messages left"
-  // inside <main>. We scan that subtree first for speed; fall back to body
-  // only if <main> isn't present yet.
-  const re = /(\d+)\s+messages?\s+(remaining|left)/i;
-  const root = document.querySelector('main') || document.body;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const reCount = /(\d+)\s+messages?\s+(remaining|left)/i;
+  // Matches: "in 2h 30m", "in 45m", "in 1h", "Try again in 2 hours", "resets in ..."
+  const reReset = /(?:resets?\s+in|try\s+again\s+in|in)\s+((?:\d+\s*h(?:ours?)?\s*)?(?:\d+\s*m(?:in(?:utes?)?)?)?)\s*/i;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   let node;
   while ((node = walker.nextNode())) {
-    const m = re.exec(node.textContent);
+    const m = reCount.exec(node.textContent);
     if (m) {
       const n = parseInt(m[1], 10);
       if (!isNaN(n) && n >= 0) {
-        // Track the highest number seen — that's the initial allocation for this window
         if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
         _msgRateRemaining = n;
+        // Try to find reset time: check this node + parent element's full text
+        const parentText = node.parentElement ? node.parentElement.closest('[class]')?.textContent || node.parentElement.textContent : '';
+        const rm = reReset.exec(parentText);
+        if (rm && rm[1].trim()) _msgRateReset = rm[1].trim();
+        // Force a fresh limits API call to sync model_limits (bypass debounce)
+        _limitsLastFetch = 0;
         return;
       }
     }
@@ -1021,6 +1026,9 @@ async function _fetchLimitsProgress() {
       if (ml) {
         if (_msgRateInitial === null || ml.remaining > _msgRateInitial) _msgRateInitial = ml.remaining;
         _msgRateRemaining = ml.remaining;
+        // Capture reset time from API if present (field may be reset_after or resetAt)
+        const resetIso = ml.reset_after || ml.resetAt || ml.reset_at || null;
+        if (resetIso && !_msgRateReset) _msgRateReset = _fmtReset(resetIso);
       }
     }
     // Also capture default_model_slug if we haven't read the model yet
@@ -1416,6 +1424,7 @@ function _toggleCtxPopover() {
   // Pre-compute messages-remaining section (avoids IIFE inside template literal)
   const mRem   = _msgRateRemaining;
   const mInit  = _msgRateInitial;
+  const mReset = _msgRateReset;
   const mPct   = (mRem !== null && mInit) ? Math.min(100, Math.round((mRem / mInit) * 100)) : 0;
   const mColor = mRem !== null ? (mRem <= 3 ? '#ef4444' : mRem <= 10 ? '#f97316' : '#10a37f') : '#10a37f';
   const mValStyle = mRem !== null
@@ -1454,15 +1463,16 @@ function _toggleCtxPopover() {
     }).join('');
     uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
   }
+  const mResetHtml = mReset ? '<span style="opacity:.4;font-weight:400;font-size:11px"> \u00b7 resets in ' + mReset + '</span>' : '';
   let mStatus;
   if (mRem === null) {
     mStatus = '<span style="opacity:.35">No model rate limit active \u2014 appears here when you are near the per-model message cap</span>';
   } else if (mRem === 0) {
-    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached \u2014 model may downgrade or input may be blocked</span>';
+    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached</span>' + mResetHtml;
   } else if (mRem <= 3) {
-    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Almost at model limit</span><br><span style="opacity:.55;font-size:11px">Model may downgrade to a lower tier shortly</span>';
+    mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Almost at limit</span>' + mResetHtml + '<br><span style="opacity:.55;font-size:11px">Model may downgrade to a lower tier shortly</span>';
   } else if (mRem <= 10) {
-    mStatus = '<span style="color:#f97316">Approaching rate limit \u2014 use messages carefully</span>';
+    mStatus = '<span style="color:#f97316">Approaching rate limit \u2014 use messages carefully</span>' + mResetHtml;
   } else {
     mStatus = '<span style="opacity:.5">Within normal usage range</span>';
   }
@@ -2376,6 +2386,7 @@ function _onNav() {
   _ctxModel         = '';
   _msgRateRemaining = null; // reset per-chat — counts are chat/session specific
   _msgRateInitial   = null;
+  _msgRateReset     = null;
   _limitsProgress   = {};   // reset so popover shows fresh data for the new chat
   _limitsLastFetch  = 0;    // allow immediate re-fetch on next nav
   _ctxBarRetries = 0;
