@@ -1037,7 +1037,7 @@ function _getOrCreateCtxBar() {
   const dark = isDark();
   Object.assign(bar.style, { display:'inline-flex', alignItems:'center', gap:'6px', padding:'3px 9px', borderRadius:'8px', flexShrink:'0', marginLeft:'6px', border: dark ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(0,0,0,.12)', background: dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)', color: dark ? '#ececec' : '#111', fontSize:'11px', fontFamily:'inherit', fontWeight:'500', cursor:'pointer', userSelect:'none', position:'relative' });
   const fc = dark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.40)';
-  bar.innerHTML = `<div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="cgpt-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div><span id="cgpt-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span><span id="cgpt-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>`;
+  bar.innerHTML = `<div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="cgpt-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div><span id="cgpt-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span><span id="cgpt-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span><span id="cgpt-ctx-limits" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>`;
   bar.addEventListener('click', _toggleCtxPopover);
   bar.title = 'Click for context details';
 
@@ -1089,13 +1089,29 @@ function _renderCtxBar(immediate = false) {
     if (fEl) {
       if (_ctxFiles > 0) {
         fEl.style.display = '';
-        fEl.textContent = `\u{1F4CE}${_ctxFiles}`;
+        fEl.textContent = _ctxFiles + ' file' + (_ctxFiles === 1 ? '' : 's');
       } else {
         fEl.style.display = 'none';
       }
     }
-    // Refresh message rate-limit count from DOM
-    _scanMsgRateLimit();
+    // Inline quota summary: show most constrained non-file limits
+    const lEl = document.getElementById('cgpt-ctx-limits');
+    if (lEl) {
+      const ABBR = { deep_research: 'DR', image_gen: 'IMG', paste_text_to_file: 'PTF', file_upload: 'UPL' };
+      const entries = Object.entries(_limitsProgress)
+        .filter(([k]) => ABBR[k])
+        .sort((a, b) => a[1].remaining - b[1].remaining);
+      if (entries.length > 0) {
+        lEl.style.display = '';
+        // Show up to 2 most constrained; red if 0, orange if <=2
+        lEl.innerHTML = entries.slice(0, 2).map(([k, v]) => {
+          const col = v.remaining === 0 ? '#ef4444' : v.remaining <= 2 ? '#f97316' : '';
+          return '<span' + (col ? ' style="color:' + col + ';font-weight:600"' : '') + '>' + ABBR[k] + ':' + v.remaining + '</span>';
+        }).join('<span style="opacity:.35"> · </span>');
+      } else {
+        lEl.style.display = 'none';
+      }
+    }
   });
 }
 
@@ -1386,10 +1402,10 @@ function _toggleCtxPopover() {
 
   // Pre-compute usage limits section from real /conversation/init API data
   const FEAT_META = {
-    deep_research:    { icon: '\u{1F52C}', label: 'Deep Research' },
-    image_gen:        { icon: '\u{1F5BC}', label: 'Image Generation' },
-    paste_text_to_file:{ icon: '\u{1F4CB}', label: 'Paste to File' },
-    file_upload:      { icon: '\u{1F4CE}', label: 'File Upload (quota)' },
+    deep_research:     { abbr: 'DR',  label: 'Deep Research' },
+    image_gen:         { abbr: 'IMG', label: 'Image Gen' },
+    paste_text_to_file:{ abbr: 'PTF', label: 'Paste to File' },
+    file_upload:       { abbr: 'UPL', label: 'File Upload' },
   };
   const limitsEntries = Object.keys(FEAT_META)
     .filter(k => _limitsProgress[k] !== undefined)
@@ -1426,7 +1442,7 @@ function _toggleCtxPopover() {
     : '';
   const mSection = `<div style="${sep}">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-        <span style="opacity:.5;font-size:11px">\u{1F4AC} MESSAGES LEFT</span>
+        <span style="opacity:.5;font-size:11px">MSG LIMIT</span>
         <span style="${mValStyle}">${mRem !== null ? mRem + ' remaining' : '\u2014'}</span>
       </div>
       ${mBar}
@@ -1453,7 +1469,7 @@ function _toggleCtxPopover() {
     </div>
     <div style="${sep}">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-        <span style="opacity:.5;font-size:11px">\u{1F4CE} FILES</span>
+        <span style="opacity:.5;font-size:11px">FILES</span>
         <span style="font-weight:600">${f} uploaded</span>
       </div>
       ${f > 0 ? `<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${fPct}%;border-radius:2px;background:${fColor}"></div></div>` : ''}
