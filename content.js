@@ -955,13 +955,28 @@ function _getCtxWindow(slug) {
   return 128000;
 }
 
-// Scan the DOM for ChatGPT's inline rate-limit notice ("X messages remaining").
-// ChatGPT renders these banners outside <main> (portals/toasts), so we must
-// scan the full document.body. We also grab the reset time from the same banner.
+// Scan the DOM for ChatGPT's inline rate-limit banner.
+// Exact structure: .text-token-text-secondary > span.font-medium = "2 messages remaining."
+// Falls back to full TreeWalker if classes ever change.
 function _scanMsgRateLimit() {
   const reCount = /(\d+)\s+messages?\s+(remaining|left)/i;
-  // Matches: "in 2h 30m", "in 45m", "in 1h", "Try again in 2 hours", "resets in ..."
-  const reReset = /(?:resets?\s+in|try\s+again\s+in|in)\s+((?:\d+\s*h(?:ours?)?\s*)?(?:\d+\s*m(?:in(?:utes?)?)?)?)\s*/i;
+
+  // Fast path — exact selector from real banner HTML
+  const spans = document.querySelectorAll('.text-token-text-secondary span.font-medium');
+  for (const span of spans) {
+    const m = reCount.exec(span.textContent);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!isNaN(n) && n >= 0) {
+        if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
+        _msgRateRemaining = n;
+        _limitsLastFetch = 0; // bypass debounce so API re-syncs model_limits
+        return;
+      }
+    }
+  }
+
+  // Fallback — full body scan in case ChatGPT changes class names
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   let node;
   while ((node = walker.nextNode())) {
@@ -971,17 +986,12 @@ function _scanMsgRateLimit() {
       if (!isNaN(n) && n >= 0) {
         if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
         _msgRateRemaining = n;
-        // Try to find reset time: check this node + parent element's full text
-        const parentText = node.parentElement ? node.parentElement.closest('[class]')?.textContent || node.parentElement.textContent : '';
-        const rm = reReset.exec(parentText);
-        if (rm && rm[1].trim()) _msgRateReset = rm[1].trim();
-        // Force a fresh limits API call to sync model_limits (bypass debounce)
         _limitsLastFetch = 0;
         return;
       }
     }
   }
-  // Not found — keep last known value; the notice may disappear after being dismissed
+  // Not found — keep last known value
 }
 
 // ---------------------------------------------------------------------------
@@ -1134,11 +1144,12 @@ function _renderCtxBar(immediate = false) {
         lEl.style.display = 'none';
       }
     }
+    // After every render, scan for rate-limit banner in case it appeared
+    _scanMsgRateLimit();
   });
 }
 
-function _showCtxWarn() {
-  if (!_s.contextWarning || document.getElementById('cgpt-ctx-warn')) return;
+function _showCtxWarn() {  if (!_s.contextWarning || document.getElementById('cgpt-ctx-warn')) return;
   const dark = isDark();
   const w = document.createElement('div'); w.id = 'cgpt-ctx-warn';
   Object.assign(w.style, { position:'fixed', bottom:'84px', left:'50%', transform:'translateX(-50%)', zIndex:'999998', background: dark ? '#1e1e1e' : '#fff', border:'1px solid #ef4444', borderRadius:'10px', padding:'11px 14px', color: dark ? '#ececec' : '#111', fontSize:'13px', boxShadow:'0 8px 32px rgba(0,0,0,.55)', display:'flex', alignItems:'center', gap:'10px', maxWidth:'min(480px,92vw)' });
@@ -2348,6 +2359,10 @@ const _mutObs = new MutationObserver(mutations => {
   for (const mut of mutations) {
     for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
+      // If a node contains a rate-limit banner text, re-scan immediately
+      if (node.textContent?.includes('messages remaining') || node.textContent?.includes('messages left')) {
+        _scanMsgRateLimit();
+      }
       // Fast attribute checks — no DOM traversal, O(1) each
       if (!_riInject) {
         const href = node.getAttribute?.('href');
