@@ -139,14 +139,17 @@ The content script reads these headers via `getHeaders()` / `_storeGet(['chatgpt
 
 #### Job 3 — Scope action icon to ChatGPT tabs only
 
-`chrome.action.disable()` is called once at service-worker startup, globally disabling the popup icon. Two listeners then selectively enable it per tab:
+`chrome.action.disable()` is called once at service-worker startup, globally disabling the popup icon. Because MV3 service workers are **ephemeral** (Chrome kills and restarts them at will, re-executing all top-level code), a plain `chrome.action.disable()` would grey out the ChatGPT tab every time the worker woke up — including on every page refresh. The fix is a three-part approach:
 
-- **`tabs.onActivated`** — when you switch to a tab, reads the tab URL via `chrome.tabs.get()` and enables or disables the action for that specific `tabId`.
-- **`tabs.onUpdated`** — when a tab navigates to a new URL, re-evaluates based on the new URL.
+1. **Startup scan** — immediately after `chrome.action.disable()`, `chrome.tabs.query({})` iterates every open tab and calls `_syncAction()`, re-enabling any tab that is already on ChatGPT.
+2. **`tabs.onActivated`** — when you switch to a tab, reads the URL via `chrome.tabs.get()` and enables or disables the action for that specific `tabId`.
+3. **`tabs.onUpdated`** — re-evaluates on two conditions:
+   - `changeInfo.url` — tab navigated to a new URL
+   - `changeInfo.status === 'complete'` — same-URL reload. On a plain refresh `changeInfo.url` is `undefined`, so only the `status` check catches it.
 
 URL check (`_isChatGPTUrl`): `hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com')`.
 
-The result: the extension icon is greyed out and non-clickable on every non-ChatGPT site. Content scripts are already restricted by `matches` in the manifest; this closes the remaining popup vector.
+The result: the extension icon is greyed out and non-clickable on every non-ChatGPT site, and remains correctly enabled on ChatGPT through refreshes and service worker restarts.
 
 #### Job 2 — Write default settings on install
 
@@ -805,14 +808,13 @@ Every line of code in v3.4.2 is written with performance as the primary constrai
 
 #### New behaviour — extension disabled on non-ChatGPT sites
 
-`background.js` now calls `chrome.action.disable()` once at service-worker startup, globally greyining out the toolbar icon. Two event listeners then selectively re-enable it per tab:
+`background.js` calls `chrome.action.disable()` at every service-worker startup to globally grey out the toolbar icon, then immediately re-enables any already-open ChatGPT tabs. Three event listeners keep the state in sync per tab:
 
+- **Startup scan** — `chrome.tabs.query({})` runs right after `chrome.action.disable()` and calls `_syncAction()` on every open tab. This is essential because MV3 service workers are ephemeral: Chrome kills them when idle and restarts them on events, re-executing all top-level code. Without the scan, restarting the worker would grey out the ChatGPT tab on every refresh.
 - **`tabs.onActivated`** — fires when you switch to a tab; reads the URL via `chrome.tabs.get()` and enables or disables the action for that `tabId`.
-- **`tabs.onUpdated`** — fires when a tab navigates; re-evaluates based on `changeInfo.url`.
+- **`tabs.onUpdated`** — fires on navigation (`changeInfo.url`) **or** page reload (`changeInfo.status === 'complete'`). On a same-URL refresh `changeInfo.url` is `undefined`, so the status check is required to re-enable the icon after a refresh.
 
 URL check (`_isChatGPTUrl`): `hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com')`.
-
-The popup is now completely inaccessible on non-ChatGPT pages — the icon is greyed out and clicking it does nothing. Content scripts and `host_permissions` were already scoped to `chatgpt.com`; this closes the remaining popup vector.
 
 #### Branding — real logo wired in
 
