@@ -98,10 +98,12 @@ chatgpt-enhanced/
 | `manifest_version` | `3` | Required for all new Chrome extensions. MV3 replaces background pages with service workers and restricts `webRequest` blocking. |
 | `name` | `ChatGPT Enhanced` | Display name in the Chrome Extensions store and toolbar. |
 | `version` | `3.4.3` | Semantic version. Shown dynamically in the popup via `chrome.runtime.getManifest().version`. |
-| `permissions` | `activeTab`, `scripting`, `webRequest`, `storage`, `tabs` | `webRequest` is needed to intercept outgoing HTTP headers (Authorization). `storage` is used for settings and locked chat IDs. `tabs` is needed to message the active tab when settings change. |
+| `permissions` | `activeTab`, `scripting`, `webRequest`, `storage`, `tabs` | `webRequest` is needed to intercept outgoing HTTP headers (Authorization). `storage` is used for settings and locked chat IDs. `tabs` is needed to message the active tab when settings change and to enable/disable the action icon per tab. |
 | `host_permissions` | `*://chatgpt.com/*`, `*://*.chatgpt.com/*` | Grants access to all ChatGPT pages including subdomains. Required for both content script injection and `webRequest` listening. |
+| `icons` | `16/48 → chatgpt-enhanced-48_logo.png`, `128 → chatgpt-enhanced-128_logo.png` | Extension icon shown on the Chrome Extensions page and Web Store. The 48px source is reused for 16px (Chrome scales down). |
 | `background.service_worker` | `background.js` | The MV3 service worker. Lives in the background, not as a persistent page. |
 | `action.default_popup` | `popup.html` | The UI shown when the user clicks the extension icon in the toolbar. |
+| `action.default_icon` | `16/48 → chatgpt-enhanced-48_logo.png` | Toolbar icon. Chrome uses the source closest to the display density needed. |
 | `content_scripts[0].js` | `["content.js"]` | Injected into every matching ChatGPT page. |
 | `content_scripts[0].css` | `["styles.css"]` | Injected stylesheet for sidebar checkboxes and action bar base styles. |
 | `content_scripts[0].run_at` | `document_idle` | Waits until the DOM is fully ready before injecting, avoiding race conditions. |
@@ -238,8 +240,8 @@ Wrapper functions `_storeGet(keys)`, `_storeSet(obj)`, and `_syncGet(defaults)` 
 **Key implementation details:**
 - Each toggle row is a `<div class="toggle-row" data-key="SETTING_KEY">` where `data-key` matches exactly the key in `chrome.storage.sync`.
 - `popup.js` reads all `data-key` attributes at runtime — no hardcoded keys in JS.
-- The version number (`v3.4.0`) is rendered dynamically by `popup.js` from `chrome.runtime.getManifest().version`, so it never needs to be manually updated in HTML.
-- The `badge-new` span is a visual-only indicator styled in `popup.css`.
+- The version number is rendered dynamically by `popup.js` from `chrome.runtime.getManifest().version`, so it never needs to be manually updated in HTML.
+- **v3.4.3**: The SVG lightning-bolt placeholder in the header was replaced with `<img class="logo-icon" src="assets/chatgpt-enhanced-128_logo.png">` — the real product logo, displayed at 20×20 px with `object-fit: contain`.
 - **v3.4.1**: Alpha Mode section added at the bottom — collapsible `<details>` block with its own toggle row, neutral white-opacity tint background, and ⚗ icon. Displayed only as a gated experimental section.
 - **v3.4.0**: The "Coming soon" section and its divider were removed from the bottom of the popup. The corresponding `.coming-soon`, `.coming-soon-title`, `.coming-soon-list` CSS rules were also deleted from `popup.css`.
 
@@ -353,13 +355,11 @@ Contains logo images in multiple sizes for the extension icon:
 
 | File | Size | Usage |
 |---|---|---|
-| `chatgpt-enhanced-128_logo.png` | 128×128 | Chrome Extensions page, high-DPI toolbar |
-| `chatgpt-enhanced-48_logo.png` | 48×48 | Standard toolbar icon |
+| `chatgpt-enhanced-128_logo.png` | 128×128 | Chrome Extensions page, `icons["128"]` in manifest |
+| `chatgpt-enhanced-48_logo.png` | 48×48 | Toolbar icon (`action.default_icon`), manifest `icons["16"]` + `icons["48"]` (Chrome scales to 16px), popup header logo |
 | `chatgpt-enhanced-1024_logo.png` | 1024×1024 | Chrome Web Store listing |
 | `chatgpt-enhanced-full_logo.png` | Full width | Marketing / store banner |
 | `Chatgpt-enhanced-logo.png` | Original source | Original design asset |
-
-Note: Icon paths are not currently declared in `manifest.json`'s `icons` field — they exist in the repo but are not wired into the manifest. This is a known gap; adding them requires a `"icons"` key in the manifest.
 
 ---
 
@@ -813,6 +813,12 @@ Every line of code in v3.4.2 is written with performance as the primary constrai
 URL check (`_isChatGPTUrl`): `hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com')`.
 
 The popup is now completely inaccessible on non-ChatGPT pages — the icon is greyed out and clicking it does nothing. Content scripts and `host_permissions` were already scoped to `chatgpt.com`; this closes the remaining popup vector.
+
+#### Branding — real logo wired in
+
+- **`manifest.json`**: `icons` block added (`16`/`48` → `chatgpt-enhanced-48_logo.png`, `128` → `chatgpt-enhanced-128_logo.png`). `action.default_icon` added with same 16/48 mapping. Icons were previously absent from the manifest entirely.
+- **`popup.html`**: SVG lightning-bolt placeholder replaced with `<img class="logo-icon" src="assets/chatgpt-enhanced-128_logo.png">` — the actual product logo.
+- **`popup.css`**: `.logo-icon` updated for `<img>` — `width/height: 20px`, `object-fit: contain`, `image-rendering: -webkit-optimize-contrast` for crisp downscaling; `color` property removed (inapplicable to `<img>`).
 
 #### Version bump
 - `manifest.json` `"version"` → `"3.4.3"`

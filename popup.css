@@ -29,10 +29,11 @@ body {
 }
 
 .logo-icon {
-  width: 15px;
-  height: 15px;
-  color: #ffffff;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
   flex-shrink: 0;
+  image-rendering: -webkit-optimize-contrast;
 }
 
 .logo-text {
