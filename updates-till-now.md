@@ -1,6 +1,6 @@
 # ChatGPT Enhanced — Complete Developer Documentation & Update Log
 
-> **Current Version:** `3.4.3`
+> **Current Version:** `3.5.0`
 > **Last Updated:** March 4, 2026
 > **Type:** Chrome Extension (Manifest V3)
 > **Target:** `chatgpt.com` only
@@ -804,7 +804,71 @@ Every line of code in v3.4.2 is written with performance as the primary constrai
 
 ## 7. Version History & Changes
 
-### v3.4.3 (current)
+### v3.5.0 (current)
+
+#### New feature — Blocked feature detection
+
+`/conversation/init` returns a `blocked_features` array listing features that are temporarily hard-blocked at the session level (e.g. file attachments after hitting the free-tier limit). This is distinct from the `limits_progress` quota — quota is the global rolling window; blocked is a per-session gate.
+
+- New state var `_blockedFeatures: Set<string>` populated after every `/conversation/init` call.
+- Blocked status drives **no color change** in pills — color is based solely on `remaining` count (red = 0, orange ≤ 2). A feature can be blocked but still show remaining quota from the rolling window.
+- `teardownContextBar()` resets `_blockedFeatures` alongside the other stat vars.
+
+#### New feature — Extended system data in Context Intelligence popover
+
+New function `_fetchExtendedData()` fires in parallel alongside `_fetchLimitsProgress()` on context bar setup. Debounced to once every 5 minutes. Makes three simultaneous `fetch` calls:
+
+| Endpoint | State var | What it shows |
+|---|---|---|
+| `/backend-api/memories` | `_memoriesEnabled`, `_memoriesCount` | Memory on/off + count of saved memories |
+| `/backend-api/images/bootstrap` | `_imagesCount` | Lifetime generated image count |
+| `/backend-api/user_system_messages` | `_customInstrOn` | Custom instructions enabled/disabled |
+
+A new **SYSTEM** section appears at the bottom of the Context Intelligence popover (click the context bar to open it):
+
+```
+SYSTEM
+🧠 Memory              3 saved
+🖼️ Generated Images    29
+📝 Custom Instructions  On
+```
+
+All three state vars are reset in `teardownContextBar()` and `_extDataLastFetch` is also reset so re-setup on navigation refetches fresh data.
+
+#### New API endpoints in CONFIG.api
+
+```javascript
+memories:        'https://chatgpt.com/backend-api/memories',
+imagesBootstrap: 'https://chatgpt.com/backend-api/images/bootstrap',
+userSysMsg:      'https://chatgpt.com/backend-api/user_system_messages',
+```
+
+#### Network investigation findings (Playwright session)
+
+Full API endpoint map confirmed via Playwright response interception on a live ChatGPT session. Notable endpoints and their data:
+
+- **`/conversation/init`** — `limits_progress`, `blocked_features`, `banner_info`, `model_limits`. Already in use.
+- **`/celsius/ws/user`** — Returns a live WebSocket URL (`wss://ws.chatgpt.com/c4/ws/...`). ChatGPT's realtime push channel for typing indicators, canvas sync, etc.
+- **`/tasks`** — Scheduled tasks. Exists but empty on this account.
+- **`/calpico/chatgpt/rooms/summary`** — Group chat rooms (undocumented feature).
+- **`/models`** — All available model slugs + tags. `context_window` field not populated for free accounts.
+- **`/amphora/notifications`** — Notification system. Structure not yet drilled.
+- **`/beacons/home`** — Home page discovery cards, currently `null`.
+- **`/accounts/check/v4-2023-04-27`** — Nested `accounts[]` array with per-account plan and entitlements.
+- **`/memories`**, **`/images/bootstrap`**, **`/user_system_messages`** — Now used in `_fetchExtendedData()`.
+
+#### Bug fix — pill color not tied to blocked status
+
+Previous commit `2d77f11` (v3.5.0 initial) incorrectly colored blocked pills red. Fixed in `366dab9`: removed `isBlocked` from the color formula — color is now `remaining === 0 → red`, `remaining <= 2 → orange`, else default.
+
+#### Version bump
+- `manifest.json` `"version"` → `"3.5.0"`
+- Header comment → `v3.5.0`
+- `console.log('[CGPT+] v3.5.0 ready')`
+
+---
+
+### v3.4.3
 
 #### New behaviour — extension disabled on non-ChatGPT sites
 
