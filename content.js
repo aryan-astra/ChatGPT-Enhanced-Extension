@@ -941,22 +941,26 @@ function _getCtxWindow(slug) {
 // Scan the DOM for ChatGPT's inline rate-limit notice ("X messages remaining").
 // Called after every context bar render so the count stays fresh.
 function _scanMsgRateLimit() {
+  // ChatGPT shows notices like "5 messages remaining" or "3 messages left"
+  // inside <main>. We scan that subtree first for speed; fall back to body
+  // only if <main> isn't present yet.
   const re = /(\d+)\s+messages?\s+(remaining|left)/i;
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const root = document.querySelector('main') || document.body;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let node;
   while ((node = walker.nextNode())) {
     const m = re.exec(node.textContent);
     if (m) {
       const n = parseInt(m[1], 10);
       if (!isNaN(n) && n >= 0) {
-        // Track the highest number seen — that is the initial allocation
+        // Track the highest number seen — that's the initial allocation for this window
         if (_msgRateInitial === null || n > _msgRateInitial) _msgRateInitial = n;
         _msgRateRemaining = n;
         return;
       }
     }
   }
-  // Not found — keep last known value; the notice may have been dismissed
+  // Not found — keep last known value; the notice may disappear after being dismissed
 }
 
 function _getOrCreateCtxBar() {
@@ -1224,6 +1228,10 @@ function teardownContextBar() {
 function _setupCtxRefreshObserver() {
   if (_ctxRefreshObs || (!_s.contextBar && !_s.contextWarning)) return;
   _ctxRefreshObs = new MutationObserver(() => {
+    // Grab the rate-limit count immediately — don't wait for the debounce.
+    // ChatGPT injects the notice synchronously into the DOM; we need to
+    // read it before the user navigates away or dismisses the banner.
+    _scanMsgRateLimit();
     clearTimeout(_ctxRefreshTimer);
     _ctxRefreshTimer = setTimeout(() => {
       const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
@@ -2211,10 +2219,12 @@ _mutObs.observe(document.body, { childList: true, subtree: true });
 // SPA NAVIGATION
 // ---------------------------------------------------------------------------
 function _onNav() {
-  _sbBgCache = null;
-  _ctxToks   = 0;
-  _ctxFiles  = 0;
-  _ctxModel  = '';
+  _sbBgCache      = null;
+  _ctxToks        = 0;
+  _ctxFiles       = 0;
+  _ctxModel       = '';
+  _msgRateRemaining = null; // reset per-chat — counts are chat/session specific
+  _msgRateInitial   = null;
   _ctxBarRetries = 0;
   _lastCtxFetch  = 0;
   _teardownCtxRefreshObserver();
