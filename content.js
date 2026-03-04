@@ -19,6 +19,7 @@ const CONFIG = {
   api: {
     conversations:    'https://chatgpt.com/backend-api/conversations',
     conversationBase: 'https://chatgpt.com/backend-api/conversation/',
+    conversationInit: 'https://chatgpt.com/backend-api/conversation/init',
   },
 };
 
@@ -42,6 +43,20 @@ let _s = { ...DEFAULT_SETTINGS };
 // ---------------------------------------------------------------------------
 function isDark() {
   return document.documentElement.classList.contains('dark');
+}
+// Format a reset_after ISO timestamp into a human-readable string
+// e.g. "in 3h 12m", "tomorrow", "Apr 3", "now"
+function _fmtReset(iso) {
+  if (!iso) return '';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'now';
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (h < 1)  return 'in ' + m + 'm';
+  if (h < 24) return 'in ' + h + 'h' + (m ? ' ' + m + 'm' : '');
+  if (h < 36) return 'tomorrow';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 function extractId(href) {
   const m = href?.match(/\/c\/([^/?#]+)/);
@@ -926,6 +941,7 @@ let _ctxToks = 0;
 let _ctxFiles = 0;
 let _msgRateRemaining = null; // null=unknown, number=messages left before model limits out
 let _msgRateInitial   = null; // highest count seen = initial allocation for this window
+let _limitsProgress   = {};   // keyed by feature_name: {remaining, resetAfter} from /conversation/init
 let _ctxModel = '';
 let _ctxRefreshObs = null;
 let _ctxRefreshTimer = 0;
@@ -961,6 +977,57 @@ function _scanMsgRateLimit() {
     }
   }
   // Not found — keep last known value; the notice may disappear after being dismissed
+}
+
+// ---------------------------------------------------------------------------
+// Fetch real feature usage limits from /backend-api/conversation/init.
+// This endpoint returns limits_progress (deep_research, file_upload, image_gen,
+// paste_text_to_file) and model_limits (populated when you hit a model rate limit).
+// ---------------------------------------------------------------------------
+let _limitsLastFetch = 0;
+async function _fetchLimitsProgress() {
+  if (!_extCtxOk()) return;
+  // Debounce: don't hit the endpoint more than once every 60 seconds
+  const now = Date.now();
+  if (now - _limitsLastFetch < 60000) return;
+  _limitsLastFetch = now;
+  try {
+    let h;
+    try { h = await getHeaders(); } catch { return; }
+    if (!_extCtxOk()) return;
+    const tz = -new Date().getTimezoneOffset();
+    let r;
+    try {
+      r = await fetch(CONFIG.api.conversationInit, {
+        method: 'POST',
+        headers: { ...h, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gizmo_id: null, requested_default_model: null, conversation_id: null, timezone_offset_min: tz })
+      });
+    } catch { return; }
+    if (!_extCtxOk() || !r.ok) return;
+    let data;
+    try { data = await r.json(); } catch { return; }
+    if (!_extCtxOk()) return;
+    // Map limits_progress array to an object keyed by feature_name
+    const prog = {};
+    (data.limits_progress || []).forEach(item => {
+      prog[item.feature_name] = { remaining: item.remaining, resetAfter: item.reset_after };
+    });
+    _limitsProgress = prog;
+    // model_limits is populated when you are at/near a per-model message rate limit
+    const modelLimits = data.model_limits || [];
+    if (modelLimits.length > 0) {
+      const ml = modelLimits.find(l => typeof l.remaining === 'number');
+      if (ml) {
+        if (_msgRateInitial === null || ml.remaining > _msgRateInitial) _msgRateInitial = ml.remaining;
+        _msgRateRemaining = ml.remaining;
+      }
+    }
+    // Also capture default_model_slug if we haven't read the model yet
+    if (!_ctxModel && data.default_model_slug) _ctxModel = data.default_model_slug;
+  } catch (e) {
+    if (_isCtxErr(e)) _killScript();
+  }
 }
 
 function _getOrCreateCtxBar() {
@@ -1176,6 +1243,8 @@ async function _fetchCtxData(chatId, retries = 5) {
       const btn = document.querySelector(CONFIG.sel.modelBtn);
       if (btn) _readModel(btn);
     }
+    // Refresh real feature limits (debounced — at most once per 60s)
+    _fetchLimitsProgress();
     _renderCtxBar();
   } catch (e) {
     if (_isCtxErr(e)) { _killScript(); return; }
@@ -1207,6 +1276,8 @@ function setupContextBar() {
   const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
   if (chatId) { _fetchCtxData(chatId); _setupCtxRefreshObserver(); }
   else _renderCtxBar();
+  // Fetch real feature limits from the conversation/init API (fire-and-forget)
+  _fetchLimitsProgress();
 }
 
 function teardownContextBar() {
@@ -1228,10 +1299,6 @@ function teardownContextBar() {
 function _setupCtxRefreshObserver() {
   if (_ctxRefreshObs || (!_s.contextBar && !_s.contextWarning)) return;
   _ctxRefreshObs = new MutationObserver(() => {
-    // Grab the rate-limit count immediately — don't wait for the debounce.
-    // ChatGPT injects the notice synchronously into the DOM; we need to
-    // read it before the user navigates away or dismisses the banner.
-    _scanMsgRateLimit();
     clearTimeout(_ctxRefreshTimer);
     _ctxRefreshTimer = setTimeout(() => {
       const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
@@ -1316,9 +1383,35 @@ function _toggleCtxPopover() {
   const mValStyle = mRem !== null
     ? (mRem <= 3 ? 'font-weight:600;color:#ef4444' : mRem <= 10 ? 'font-weight:600;color:#f97316' : 'font-weight:600')
     : 'font-weight:600;opacity:.4';
+
+  // Pre-compute usage limits section from real /conversation/init API data
+  const FEAT_META = {
+    deep_research:    { icon: '\u{1F52C}', label: 'Deep Research' },
+    image_gen:        { icon: '\u{1F5BC}', label: 'Image Generation' },
+    paste_text_to_file:{ icon: '\u{1F4CB}', label: 'Paste to File' },
+    file_upload:      { icon: '\u{1F4CE}', label: 'File Upload (quota)' },
+  };
+  const limitsEntries = Object.keys(FEAT_META)
+    .filter(k => _limitsProgress[k] !== undefined)
+    .map(k => ({ key: k, ...FEAT_META[k], ..._limitsProgress[k] }));
+  let uSection = '';
+  if (limitsEntries.length > 0) {
+    let rows = limitsEntries.map(e => {
+      const rem = e.remaining;
+      const color = rem === 0 ? '#ef4444' : rem <= 2 ? '#f97316' : 'inherit';
+      const weight = rem <= 2 ? 'font-weight:600' : '';
+      const rst = _fmtReset(e.resetAfter);
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">'
+        + '<span style="opacity:.6;font-size:11px">' + e.icon + ' ' + e.label + '</span>'
+        + '<span style="font-size:11px;' + weight + ';color:' + color + '">'
+        + rem + ' left' + (rst ? '<span style="opacity:.4;font-weight:400;margin-left:4px">· ' + rst + '</span>' : '')
+        + '</span></div>';
+    }).join('');
+    uSection = '<div style="' + sep + '"><div style="opacity:.5;font-size:11px;margin-bottom:6px">\u26A1 USAGE LIMITS <span style="opacity:.5;font-weight:400;font-size:10px">\u00B7 from API</span></div>' + rows + '</div>';
+  }
   let mStatus;
   if (mRem === null) {
-    mStatus = '<span style="opacity:.35">No rate-limit notice detected yet \u2014 this appears automatically when you are near the limit</span>';
+    mStatus = '<span style="opacity:.35">No model rate limit active \u2014 appears here when you are near the per-model message cap</span>';
   } else if (mRem === 0) {
     mStatus = '<span style="color:#ef4444;font-weight:600">\u26A0 Limit reached \u2014 model may downgrade or input may be blocked</span>';
   } else if (mRem <= 3) {
@@ -1366,6 +1459,7 @@ function _toggleCtxPopover() {
       ${f > 0 ? `<div style="width:100%;height:4px;border-radius:2px;background:rgba(128,128,128,.18);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:${fPct}%;border-radius:2px;background:${fColor}"></div></div>` : ''}
       <div style="font-size:11px;line-height:1.55">${fStatus}</div>
     </div>
+    ${uSection}
     ${mSection}
     <div style="${sep};font-size:10px;opacity:.25;text-align:center;padding-top:8px">Click pill to close &middot; Auto-refreshes every message</div>
   `;
@@ -2231,12 +2325,14 @@ _mutObs.observe(document.body, { childList: true, subtree: true });
 // SPA NAVIGATION
 // ---------------------------------------------------------------------------
 function _onNav() {
-  _sbBgCache      = null;
-  _ctxToks        = 0;
-  _ctxFiles       = 0;
-  _ctxModel       = '';
+  _sbBgCache        = null;
+  _ctxToks          = 0;
+  _ctxFiles         = 0;
+  _ctxModel         = '';
   _msgRateRemaining = null; // reset per-chat — counts are chat/session specific
   _msgRateInitial   = null;
+  _limitsProgress   = {};   // reset so popover shows fresh data for the new chat
+  _limitsLastFetch  = 0;    // allow immediate re-fetch on next nav
   _ctxBarRetries = 0;
   _lastCtxFetch  = 0;
   _teardownCtxRefreshObserver();
