@@ -2379,7 +2379,7 @@ setTimeout(() => {
     });
     _startWatchdog();
 
-    console.log('[CGPT+] v3.4.2 ready');
+    console.log('[CGPT+] v3.4.3 ready');
   });
 }, 150);
 

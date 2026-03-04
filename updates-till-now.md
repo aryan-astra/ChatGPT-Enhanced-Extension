@@ -1,6 +1,6 @@
 # ChatGPT Enhanced — Complete Developer Documentation & Update Log
 
-> **Current Version:** `3.4.2`
+> **Current Version:** `3.4.3`
 > **Last Updated:** March 4, 2026
 > **Type:** Chrome Extension (Manifest V3)
 > **Target:** `chatgpt.com` only
@@ -97,7 +97,7 @@ chatgpt-enhanced/
 |---|---|---|
 | `manifest_version` | `3` | Required for all new Chrome extensions. MV3 replaces background pages with service workers and restricts `webRequest` blocking. |
 | `name` | `ChatGPT Enhanced` | Display name in the Chrome Extensions store and toolbar. |
-| `version` | `3.4.2` | Semantic version. Shown dynamically in the popup via `chrome.runtime.getManifest().version`. |
+| `version` | `3.4.3` | Semantic version. Shown dynamically in the popup via `chrome.runtime.getManifest().version`. |
 | `permissions` | `activeTab`, `scripting`, `webRequest`, `storage`, `tabs` | `webRequest` is needed to intercept outgoing HTTP headers (Authorization). `storage` is used for settings and locked chat IDs. `tabs` is needed to message the active tab when settings change. |
 | `host_permissions` | `*://chatgpt.com/*`, `*://*.chatgpt.com/*` | Grants access to all ChatGPT pages including subdomains. Required for both content script injection and `webRequest` listening. |
 | `background.service_worker` | `background.js` | The MV3 service worker. Lives in the background, not as a persistent page. |
@@ -112,7 +112,7 @@ chatgpt-enhanced/
 
 ### 3.2 `background.js`
 
-**Role:** The MV3 service worker. Performs two jobs:
+**Role:** The MV3 service worker. Performs three jobs:
 
 #### Job 1 — Capture outgoing API headers
 
@@ -134,6 +134,17 @@ chrome.webRequest.onSendHeaders.addListener(
 ```
 
 The content script reads these headers via `getHeaders()` / `_storeGet(['chatgpt_headers'])` whenever it needs to call the ChatGPT API.
+
+#### Job 3 — Scope action icon to ChatGPT tabs only
+
+`chrome.action.disable()` is called once at service-worker startup, globally disabling the popup icon. Two listeners then selectively enable it per tab:
+
+- **`tabs.onActivated`** — when you switch to a tab, reads the tab URL via `chrome.tabs.get()` and enables or disables the action for that specific `tabId`.
+- **`tabs.onUpdated`** — when a tab navigates to a new URL, re-evaluates based on the new URL.
+
+URL check (`_isChatGPTUrl`): `hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com')`.
+
+The result: the extension icon is greyed out and non-clickable on every non-ChatGPT site. Content scripts are already restricted by `matches` in the manifest; this closes the remaining popup vector.
 
 #### Job 2 — Write default settings on install
 
@@ -790,7 +801,26 @@ Every line of code in v3.4.2 is written with performance as the primary constrai
 
 ## 7. Version History & Changes
 
-### v3.4.2 (current)
+### v3.4.3 (current)
+
+#### New behaviour — extension disabled on non-ChatGPT sites
+
+`background.js` now calls `chrome.action.disable()` once at service-worker startup, globally greyining out the toolbar icon. Two event listeners then selectively re-enable it per tab:
+
+- **`tabs.onActivated`** — fires when you switch to a tab; reads the URL via `chrome.tabs.get()` and enables or disables the action for that `tabId`.
+- **`tabs.onUpdated`** — fires when a tab navigates; re-evaluates based on `changeInfo.url`.
+
+URL check (`_isChatGPTUrl`): `hostname === 'chatgpt.com' || hostname.endsWith('.chatgpt.com')`.
+
+The popup is now completely inaccessible on non-ChatGPT pages — the icon is greyed out and clicking it does nothing. Content scripts and `host_permissions` were already scoped to `chatgpt.com`; this closes the remaining popup vector.
+
+#### Version bump
+- `manifest.json` `"version"` → `"3.4.3"`
+- `console.log('[CGPT+] v3.4.3 ready')`
+
+---
+
+### v3.4.2
 
 #### Bug fixes — Export template literal syntax errors
 

@@ -39,6 +39,41 @@ chrome.webRequest.onSendHeaders.addListener(
   ["requestHeaders", "extraHeaders"]
 );
 
+// ---------------------------------------------------------------------------
+// Action enable/disable — only active on chatgpt.com tabs
+// ---------------------------------------------------------------------------
+function _isChatGPTUrl(url) {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'chatgpt.com' || host.endsWith('.chatgpt.com');
+  } catch {
+    return false;
+  }
+}
+
+function _syncAction(tabId, url) {
+  if (_isChatGPTUrl(url)) {
+    chrome.action.enable(tabId);
+  } else {
+    chrome.action.disable(tabId);
+  }
+}
+
+// Disable by default for all tabs; enable only when the active tab is chatgpt.com
+chrome.action.disable();
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab.url) return;
+    _syncAction(tabId, tab.url);
+  });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url) _syncAction(tabId, changeInfo.url);
+});
+
+// ---------------------------------------------------------------------------
 // Write default settings on first install (only if key doesn't exist yet)
 chrome.runtime.onInstalled.addListener(() => {
   const DEFAULTS = {
