@@ -14,7 +14,7 @@ const CONFIG = {
     sidebarLink: 'nav a[href^="/c/"]',
     msgBlock:    'main article[data-testid], div[data-message-author-role]',
     modelBtn:    'button[aria-label*="current model"]',
-    banner:      '[role="banner"]',
+    banner:      'header',   // <header> has no role attr — use tag selector
   },
   api: {
     conversations:    'https://chatgpt.com/backend-api/conversations',
@@ -60,10 +60,38 @@ function _fmtReset(iso) {
 }
 
 // ---------------------------------------------------------------------------
-// MSG RATE persistence — survives page reloads and SPA navigation.
-// Stores raw ISO reset timestamp so the displayed "resets in X" stays accurate.
+// Persistence — MSG rate limit + feature limits survive page reloads.
+// Raw ISO reset timestamps are stored so "resets in X" stays accurate.
 // ---------------------------------------------------------------------------
-const _MSG_RATE_KEY = 'cgptEnh_msgRate';
+const _MSG_RATE_KEY    = 'cgptEnh_msgRate';
+const _LIMITS_PROG_KEY = 'cgptEnh_limitsProgress';
+
+function _saveLimitsProgress() {
+  try {
+    if (!Object.keys(_limitsProgress).length) {
+      localStorage.removeItem(_LIMITS_PROG_KEY);
+      return;
+    }
+    localStorage.setItem(_LIMITS_PROG_KEY, JSON.stringify(_limitsProgress));
+  } catch(e) {}
+}
+function _loadLimitsProgress() {
+  try {
+    const raw = localStorage.getItem(_LIMITS_PROG_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    // Discard any entry whose reset time has already passed
+    const now = Date.now();
+    const valid = {};
+    for (const [k, v] of Object.entries(d)) {
+      const resetMs = v.resetAfter ? new Date(v.resetAfter).getTime() : Infinity;
+      if (resetMs > now) valid[k] = v;
+    }
+    if (Object.keys(valid).length) _limitsProgress = valid;
+    else localStorage.removeItem(_LIMITS_PROG_KEY);
+  } catch(e) {}
+}
+
 function _saveMsgRate() {
   try {
     if (_msgRateRemaining === null && _msgRateResetIso === null) {
@@ -930,7 +958,7 @@ function setupModelBadge(force = false) {
   _modelBtnObs = new MutationObserver(() => _readModel(btn));
   _modelBtnObs.observe(btn, { attributes: true, attributeFilter: ['aria-label'] });
 
-  const bannerEl = btn.closest('[role="banner"]') || btn.parentElement;
+  const bannerEl = btn.closest('header') || btn.parentElement;
   if (bannerEl) {
     if (_bannerObs) _bannerObs.disconnect();
     _bannerObs = new MutationObserver(() => {
@@ -1067,6 +1095,7 @@ async function _fetchLimitsProgress() {
       prog[item.feature_name] = { remaining: item.remaining, resetAfter: item.reset_after };
     });
     _limitsProgress = prog;
+    _saveLimitsProgress();
     // model_limits is populated when you are at/near a per-model message rate limit
     const modelLimits = data.model_limits || [];
     if (modelLimits.length > 0) {
@@ -2630,7 +2659,8 @@ document.addEventListener('visibilitychange', () => {
 // BOOT
 // ---------------------------------------------------------------------------
 setTimeout(() => {
-  _loadMsgRate(); // restore persisted rate-limit state before first render
+  _loadMsgRate();          // restore persisted MSG rate-limit state before first render
+  _loadLimitsProgress();   // restore persisted feature limits (deep research, files, etc.)
   _syncGet(DEFAULT_SETTINGS).then(stored => {
     if (!_extCtxOk()) return; // context died before we got storage data
     _s = { ...DEFAULT_SETTINGS, ...stored };
