@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.5.0
+// ChatGPT Enhanced - content.js  v3.5.1
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
@@ -877,7 +877,11 @@ function _buildBadge(btn) {
 function _readModel(btn) {
   const m = (btn.getAttribute('aria-label') || '').match(/current model is (.+)/i);
   if (!m) return;
-  const name = m[1].trim(), rank = _modelRank(name);
+  let name = m[1].trim();
+  // When the selector is set to "Auto", the aria-label says "Auto" instead of
+  // the real model. Use the API-resolved slug (_ctxModel) as the display name.
+  if (/^auto$/i.test(name) && _ctxModel) name = _ctxModel;
+  const rank = _modelRank(name);
   if (rank > _maxRank) _maxRank = rank;
   const down = rank !== -1 && _maxRank !== -1 && rank < _maxRank;
   const lbl = document.getElementById('cgpt-badge-label');
@@ -1314,10 +1318,22 @@ async function _fetchCtxData(chatId, retries = 5) {
     _ctxModel = slug;
     const w = _getCtxWindow(slug);
     if (w !== _ctxWin) _ctxWin = w;
-    // Sync model badge from API data (catches model changes the button observer might miss)
+    // Sync model badge directly from API slug — the button's aria-label often
+    // just says "Auto" which is useless. The API response has the real model.
     if (slug && _s.modelBadge) {
-      const btn = document.querySelector(CONFIG.sel.modelBtn);
-      if (btn) _readModel(btn);
+      const lbl = document.getElementById('cgpt-badge-label');
+      if (lbl) {
+        lbl.textContent = slug;
+        const rank = _modelRank(slug);
+        if (rank > _maxRank) _maxRank = rank;
+        const down = rank !== -1 && _maxRank !== -1 && rank < _maxRank;
+        const b = document.getElementById('cgpt-model-badge');
+        if (b) {
+          const th = _badgeTheme(down);
+          b.style.border = th.border; b.style.background = th.background; b.style.color = th.color;
+          b.title = down ? '\u26A0\uFE0F Model was downgraded this session' : '';
+        }
+      }
     }
     // Refresh real feature limits (debounced — at most once per 60s)
     _fetchLimitsProgress();
@@ -2639,7 +2655,7 @@ setTimeout(() => {
     });
     _startWatchdog();
 
-    console.log('[CGPT+] v3.5.0 ready');
+    console.log('[CGPT+] v3.5.1 ready');
   });
 }, 150);
 
