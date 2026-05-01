@@ -9,20 +9,43 @@
 // ---------------------------------------------------------------------------
 // CONFIG
 // ---------------------------------------------------------------------------
+const _apiOrigin = (() => {
+  const host = location.hostname;
+  if (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) return 'https://chatgpt.com';
+  if (host === 'chat.openai.com' || host.endsWith('.openai.com')) return location.origin;
+  return 'https://chatgpt.com';
+})();
+
 const CONFIG = {
   sel: {
-    sidebarLink: 'nav a[href^="/c/"]',
-    msgBlock:    'main article[data-testid], div[data-message-author-role]',
-    modelBtn:    'button[aria-label*="current model"]',
-    banner:      'header',   // <header> has no role attr — use tag selector
+    sidebarLink: [
+      'nav a[href^="/c/"]',
+      'aside a[href^="/c/"]',
+      'a[href^="/c/"]',
+    ],
+    msgBlock: [
+      'main article[data-testid]',
+      'main [data-message-author-role]',
+      'div[data-message-author-role]',
+    ],
+    modelBtn: [
+      'button[aria-label*="current model"]',
+      'button[aria-label*="model"]',
+      'header button[aria-haspopup="menu"]',
+    ],
+    banner: [
+      'header',
+      '[role="banner"]',
+      'main header',
+    ],
   },
   api: {
-    conversations:    'https://chatgpt.com/backend-api/conversations',
-    conversationBase: 'https://chatgpt.com/backend-api/conversation/',
-    conversationInit: 'https://chatgpt.com/backend-api/conversation/init',
-    memories:         'https://chatgpt.com/backend-api/memories',
-    imagesBootstrap:  'https://chatgpt.com/backend-api/images/bootstrap',
-    userSysMsg:       'https://chatgpt.com/backend-api/user_system_messages',
+    conversations:    _apiOrigin + '/backend-api/conversations',
+    conversationBase: _apiOrigin + '/backend-api/conversation/',
+    conversationInit: _apiOrigin + '/backend-api/conversation/init',
+    memories:         _apiOrigin + '/backend-api/memories',
+    imagesBootstrap:  _apiOrigin + '/backend-api/images/bootstrap',
+    userSysMsg:       _apiOrigin + '/backend-api/user_system_messages',
   },
 };
 
@@ -98,6 +121,39 @@ function extractId(href) {
   const m = href?.match(/\/c\/([^/?#]+)/);
   return m ? m[1] : null;
 }
+
+function _selList(key) {
+  const v = CONFIG.sel[key];
+  return Array.isArray(v) ? v : [v];
+}
+
+function _qSel(key, root = document) {
+  const sels = _selList(key);
+  for (const sel of sels) {
+    const el = root.querySelector(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
+function _qAllSel(key, root = document) {
+  const sels = _selList(key);
+  for (const sel of sels) {
+    const nodes = root.querySelectorAll(sel);
+    if (nodes.length) return nodes;
+  }
+  return root.querySelectorAll(sels[0]);
+}
+
+function _nodeHasSel(node, key) {
+  if (!node || node.nodeType !== 1) return false;
+  const sels = _selList(key);
+  for (const sel of sels) {
+    if (node.matches?.(sel) || node.querySelector?.(sel)) return true;
+  }
+  return false;
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // Returns false when the extension was reloaded mid-session (context invalidated).
 // Always check this before any chrome.* call in async code.
@@ -246,7 +302,7 @@ function teardownVirtualization() {
 
 function observeMessages() {
   if (!_msgObs) return;
-  document.querySelectorAll(CONFIG.sel.msgBlock).forEach(el => {
+  _qAllSel('msgBlock').forEach(el => {
     if (!el.dataset.cgptVObs) {
       el.dataset.cgptVObs = '1';
       _msgObs.observe(el);
@@ -292,7 +348,7 @@ function injectCheckboxes() {
     document.head.appendChild(s);
   }
 
-  const links = document.querySelectorAll(CONFIG.sel.sidebarLink);
+  const links = _qAllSel('sidebarLink');
   if (!links.length) return;
   let n = 0;
   links.forEach((link, idx) => {
@@ -825,7 +881,7 @@ function setupCompactSidebar() {
   if (qRoot !== document.body) {
     for (const ch of [...qRoot.children]) {
       if (!ch || ch === sidebar || ch.contains(sidebar)) continue;
-      if (ch.querySelector?.('a[href^="/c/"]')) continue;
+      if (_nodeHasSel(ch, 'sidebarLink')) continue;
       if (!ch.children.length) continue;
       if ([...ch.children].every(c => c.dataset.cgptGridHidden === '1')) {
         ch.style.setProperty('display', 'none', 'important');
@@ -921,7 +977,7 @@ function _rebuildBadge(btn) {
 }
 
 function setupModelBadge(force = false) {
-  const btn = document.querySelector(CONFIG.sel.modelBtn);
+  const btn = _qSel('modelBtn');
   if (!btn) return;
   if (force || !document.getElementById('cgpt-model-badge')) _rebuildBadge(btn);
   else _readModel(btn);
@@ -936,7 +992,7 @@ function setupModelBadge(force = false) {
     _bannerObs = new MutationObserver(() => {
       if (!document.getElementById('cgpt-model-badge')) {
         requestAnimationFrame(() => {
-          const b2 = document.querySelector(CONFIG.sel.modelBtn);
+          const b2 = _qSel('modelBtn');
           if (b2) _rebuildBadge(b2);
         });
       }
@@ -1100,11 +1156,11 @@ function _getOrCreateCtxBar() {
   // Insert bar directly after the badge (or model button) in the same flex row.
   // Do NOT walk up to header level — that puts it outside the left flex container.
   const anchor = document.getElementById('cgpt-model-badge')
-              ?? document.querySelector(CONFIG.sel.modelBtn);
+              ?? _qSel('modelBtn');
   if (anchor?.parentElement) {
     anchor.parentElement.insertBefore(bar, anchor.nextSibling);
   } else {
-    const banner = document.querySelector(CONFIG.sel.banner);
+    const banner = _qSel('banner');
     if (banner) banner.appendChild(bar);
   }
   return bar;
@@ -1349,13 +1405,13 @@ let _ctxBarRetries = 0;
 function setupContextBar() {
   _installFetchInterceptor(); // lazy — only when this feature is on
   // Sync model window from button immediately (no timer)
-  const btn = document.querySelector(CONFIG.sel.modelBtn);
+  const btn = _qSel('modelBtn');
   if (btn) {
     const m = (btn.getAttribute('aria-label') || '').match(/current model is (.+)/i);
     if (m) _ctxWin = _getCtxWindow(m[1].trim());
   }
   if (_s.contextBar) {
-    const banner = document.querySelector(CONFIG.sel.banner);
+    const banner = _qSel('banner');
     if (!banner && _ctxBarRetries < 6) {
       // Banner not rendered yet (very early load) — retry shortly
       _ctxBarRetries++;
@@ -1406,9 +1462,11 @@ function _setupCtxRefreshObserver() {
         _lastCtxFetch = Date.now();
         _fetchCtxData(chatId);
         if (_s.modelBadge) {
-          const btn = document.querySelector(CONFIG.sel.modelBtn);
+          const btn = _qSel('modelBtn');
           if (btn) _readModel(btn);
         }
+        const links = [..._qAllSel('sidebarLink')];
+        const firstLink = _qSel('sidebarLink');
       }
     }, 1200);
   });
@@ -1657,7 +1715,7 @@ async function setupDateGroups() {
     document.head.appendChild(s);
   }
 
-  const links = [...document.querySelectorAll(CONFIG.sel.sidebarLink)];
+  const links = [..._qAllSel('sidebarLink')];
   if (!links.length) {
     _dgSetup = false;
     setTimeout(() => { if (!_dead && _s.dateGroups && !_dgSetup) setupDateGroups(); }, 1200);
@@ -1831,7 +1889,7 @@ function _renderVaultHeader() {
   const count = _lockedIds.size;
   let hdr = document.getElementById('cgpt-vault-hdr');
 
-  const firstLink = document.querySelector(CONFIG.sel.sidebarLink);
+  const firstLink = _qSel('sidebarLink');
   const navEl = firstLink?.closest('nav') ?? document.querySelector('nav[aria-label]') ?? document.querySelector('nav');
   if (!navEl) {
     hdr?.remove();
@@ -1909,7 +1967,7 @@ async function setupVault() {
   _encryptedIds = new Set(data.cgpt_encrypted_ids || []);
   _ensureLockCss();
   if (_lockedIds.size) {
-    document.querySelectorAll(CONFIG.sel.sidebarLink).forEach(link => {
+    _qAllSel('sidebarLink').forEach(link => {
       const id = extractId(link.getAttribute('href'));
       if (!id || !_lockedIds.has(id)) return;
       link.dataset.cgptLocked = '1';
@@ -2419,9 +2477,9 @@ const _mutObs = new MutationObserver(mutations => {
       }
       // Slow path — only enter if needed and node actually has children
       if (node.children?.length) {
-        if (!_riInject  && _s.bulkActions    && node.querySelector('a[href^="/c/"]'))                    _schedInject();
+        if (!_riInject  && _s.bulkActions    && _nodeHasSel(node, 'sidebarLink'))                        _schedInject();
         if (!_riObserve && _s.lagFix         && node.querySelector('[data-message-author-role]'))        _schedObserve();
-        if (!_riBadge   && _s.modelBadge     && node.querySelector(CONFIG.sel.modelBtn))                 _schedBadge();
+        if (!_riBadge   && _s.modelBadge     && _nodeHasSel(node, 'modelBtn'))                          _schedBadge();
         if (!_riSidebar && _s.compactSidebar && node.querySelector('a[href="/images"],a[href="/apps"]')) _schedSidebar();
       }
     }
@@ -2505,7 +2563,7 @@ function _startWatchdog() {
     const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
     if (!chatId) return;
     if (_s.modelBadge) {
-      const btn = document.querySelector(CONFIG.sel.modelBtn);
+      const btn = _qSel('modelBtn');
       if (btn) _readModel(btn);
     }
     if ((_s.contextBar || _s.contextWarning) && Date.now() - _lastCtxFetch > 7000) {
@@ -2619,7 +2677,7 @@ document.addEventListener('visibilitychange', () => {
   const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
   if (!chatId) return;
   if (_s.modelBadge) {
-    const btn = document.querySelector(CONFIG.sel.modelBtn);
+    const btn = _qSel('modelBtn');
     if (btn) _readModel(btn);
   }
   if (_s.contextBar || _s.contextWarning) {

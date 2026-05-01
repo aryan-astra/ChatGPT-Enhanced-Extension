@@ -1,5 +1,10 @@
 // Headers we want to capture from outgoing ChatGPT API requests
-const TARGET_URLS = ["https://chatgpt.com/backend-api/*"];
+const TARGET_URLS = [
+  "https://chatgpt.com/backend-api/*",
+  "https://*.chatgpt.com/backend-api/*",
+  "https://chat.openai.com/backend-api/*",
+  "https://*.openai.com/backend-api/*",
+];
 const TARGET_HEADERS = [
   "authorization",
   "oai-device-id",
@@ -31,7 +36,9 @@ chrome.webRequest.onSendHeaders.addListener(
         const existingHeaders = result.chatgpt_headers || {};
         const merged = { ...existingHeaders, ...headersToSave };
         chrome.storage.local.set({ chatgpt_headers: merged });
-      }).catch(() => {});
+      }).catch((err) => {
+        console.error('[CGPT+] Failed to cache outbound auth headers:', err);
+      });
     }
   },
   { urls: TARGET_URLS },
@@ -40,12 +47,15 @@ chrome.webRequest.onSendHeaders.addListener(
 );
 
 // ---------------------------------------------------------------------------
-// Action enable/disable — only active on chatgpt.com tabs
+// Action enable/disable — only active on supported ChatGPT hosts
 // ---------------------------------------------------------------------------
 function _isChatGPTUrl(url) {
   try {
     const host = new URL(url).hostname;
-    return host === 'chatgpt.com' || host.endsWith('.chatgpt.com');
+    return host === 'chatgpt.com'
+      || host.endsWith('.chatgpt.com')
+      || host === 'chat.openai.com'
+      || host.endsWith('.openai.com');
   } catch {
     return false;
   }

@@ -12,7 +12,9 @@
   ],
   "host_permissions": [
     "*://chatgpt.com/*",
-    "*://*.chatgpt.com/*"
+    "*://*.chatgpt.com/*",
+    "*://chat.openai.com/*",
+    "*://*.openai.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -34,7 +36,9 @@
     {
       "matches": [
         "*://chatgpt.com/*",
-        "*://*.chatgpt.com/*"
+        "*://*.chatgpt.com/*",
+        "*://chat.openai.com/*",
+        "*://*.openai.com/*"
       ],
       "js": ["content.js"],
       "css": ["styles.css"],

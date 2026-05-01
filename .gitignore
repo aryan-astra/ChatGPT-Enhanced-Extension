@@ -4,6 +4,22 @@ updates-till-now.md
 # Playwright artifacts
 .playwright-mcp/
 chatgpt.com.txt
+playwright-report/
+test-results/
+*.zip
+
+# Logs and debug dumps
+*.log
+*.tmp
+*.cache
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
 
 # Node
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
