@@ -38,6 +38,13 @@ const CONFIG = {
       '[role="banner"]',
       'main header',
     ],
+    // toolbar/utility links that appear in the sidebar (Images, Apps, etc.)
+    sidebarTools: [
+      'a[href="/images"]',
+      'a[href="/apps"]',
+      'a[href="/projects"]',
+      'a[href="/search"]',
+    ],
   },
   api: {
     conversations:    _apiOrigin + '/backend-api/conversations',
@@ -2480,7 +2487,7 @@ const _mutObs = new MutationObserver(mutations => {
         if (!_riInject  && _s.bulkActions    && _nodeHasSel(node, 'sidebarLink'))                        _schedInject();
         if (!_riObserve && _s.lagFix         && node.querySelector('[data-message-author-role]'))        _schedObserve();
         if (!_riBadge   && _s.modelBadge     && _nodeHasSel(node, 'modelBtn'))                          _schedBadge();
-        if (!_riSidebar && _s.compactSidebar && node.querySelector('a[href="/images"],a[href="/apps"]')) _schedSidebar();
+        if (!_riSidebar && _s.compactSidebar && _nodeHasSel(node, 'sidebarTools')) _schedSidebar();
       }
     }
     if (!_riBadge) {

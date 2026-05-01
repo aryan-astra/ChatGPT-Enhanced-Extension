@@ -4,5 +4,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2"
+  },
+  "scripts": {
+    "playwright:launch": "node tools/playwright-launch.js"
   }
 }
