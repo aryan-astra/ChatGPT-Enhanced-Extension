@@ -5,6 +5,7 @@
 // ===========================================================================
 (function () {
 'use strict';
+console.log('[CGPT+] Content script loaded at', new Date().toLocaleTimeString());
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -37,6 +38,13 @@ const CONFIG = {
       'header',
       '[role="banner"]',
       'main header',
+    ],
+    // toolbar/utility links that appear in the sidebar (Images, Apps, etc.)
+    sidebarTools: [
+      'a[href="/images"]',
+      'a[href="/apps"]',
+      'a[href="/projects"]',
+      'a[href="/search"]',
     ],
   },
   api: {
@@ -321,9 +329,12 @@ let _vaultOpen   = false;
 let _vaultTimer  = 0;
 
 function _cbShow(cb, checked, hover = false) {
-  const v = checked || hover;
-  cb.style.opacity       = v ? '1' : '0';
-  cb.style.pointerEvents = v ? 'auto' : 'none';
+  // IMPORTANT: Do NOT use inline styles here as they override CSS :hover rules
+  // The CSS handles visibility via:
+  // - .cgpt-bulk-item:hover .cgpt-cb { opacity: 1 !important }
+  // - .cgpt-cb:checked { opacity: 1 !important }
+  // This function is kept for backward compatibility but now only logs
+  console.log(`[CGPT+] _cbShow called: checkbox=${cb?.className}, checked=${checked}, hover=${hover}`);
 }
 
 function injectCheckboxes() {
@@ -336,10 +347,11 @@ function injectCheckboxes() {
         cursor:pointer;flex-shrink:0;box-sizing:border-box;outline:none;
         border:1.5px solid rgba(107,114,128,.55);border-radius:3px;background:#fff;
         transition:opacity .1s,background .12s,border-color .12s;
-        opacity:0;pointer-events:none;will-change:opacity;}
+        opacity:0 !important;pointer-events:none !important;will-change:opacity;}
+      .cgpt-bulk-item:hover .cgpt-cb{opacity:1 !important;pointer-events:auto !important;}
       .cgpt-cb:focus{outline:none;box-shadow:none;}
       .dark .cgpt-cb{background:#1e1e22;border-color:rgba(255,255,255,.28);}
-      .cgpt-cb:checked{background:transparent;border-color:rgba(0,0,0,.7);}
+      .cgpt-cb:checked{background:transparent;border-color:rgba(0,0,0,.7);opacity:1 !important;pointer-events:auto !important;}
       .dark .cgpt-cb:checked{background:transparent;border-color:rgba(255,255,255,.7);}
       .cgpt-cb:checked::after{content:'';display:block;width:5px;height:9px;
         border:2.5px solid #000;border-top:none;border-left:none;
@@ -405,23 +417,52 @@ function injectCheckboxes() {
   });
   if (n) {
     console.log(`[CGPT+] ${n} checkboxes injected`);
-    // Single delegated listener on nav instead of per-link mouseenter/mouseleave.
-    // mouseover/mouseout bubble; mouseenter/mouseleave do not — delegation requires the bubbling variants.
-    const nav = document.querySelector('nav') || document.body;
+    // Find the sidebar container (nav or fallback)
+    let nav = document.querySelector('nav');
+    if (!nav) {
+      // Fallback: look for sidebar container by structure
+      nav = document.querySelector('[role="navigation"]');
+      if (!nav) nav = document.querySelector('aside');
+      if (!nav) nav = document.querySelector('[class*="sidebar"]');
+      if (!nav) nav = document.body; // Last resort
+    }
+    
     if (!nav._cgptHover) {
       nav._cgptHover = true;
-      nav.addEventListener('mouseover', e => {
-        const link = e.target.closest?.('.cgpt-bulk-item');
-        if (!link) return;
-        const cb = link.querySelector('.cgpt-cb');
-        if (cb) { _cbShow(cb, cb.checked, true); link.style.setProperty('padding-left', '28px', 'important'); }
-      }, { passive: true });
-      nav.addEventListener('mouseout', e => {
-        const link = e.target.closest?.('.cgpt-bulk-item');
-        if (!link || link.contains(e.relatedTarget)) return;
-        const cb = link.querySelector('.cgpt-cb');
-        if (cb) { _cbShow(cb, cb.checked, false); if (!cb.checked) link.style.setProperty('padding-left', '', 'important'); }
-      }, { passive: true });
+      const hoverHandler = (e) => {
+        let target = e.target;
+        // Walk up to find .cgpt-bulk-item
+        while (target && target !== nav) {
+          if (target.classList?.contains('cgpt-bulk-item')) {
+            const cb = target.querySelector('.cgpt-cb');
+            if (cb) { 
+              _cbShow(cb, cb.checked, true); 
+              target.style.setProperty('padding-left', '28px', 'important'); 
+            }
+            return;
+          }
+          target = target.parentElement;
+        }
+      };
+      
+      const outHandler = (e) => {
+        let target = e.target;
+        while (target && target !== nav) {
+          if (target.classList?.contains('cgpt-bulk-item')) {
+            if (target.contains(e.relatedTarget)) return;
+            const cb = target.querySelector('.cgpt-cb');
+            if (cb) { 
+              _cbShow(cb, cb.checked, false); 
+              if (!cb.checked) target.style.setProperty('padding-left', '', 'important'); 
+            }
+            return;
+          }
+          target = target.parentElement;
+        }
+      };
+      
+      nav.addEventListener('mouseover', hoverHandler, { passive: true });
+      nav.addEventListener('mouseout', outHandler, { passive: true });
     }
   }
 }
@@ -777,7 +818,9 @@ function _modal({ title, message, buttons }) {
 // ---------------------------------------------------------------------------
 let _cgptGridRetried = false;
 function setupCompactSidebar() {
-  if (document.getElementById('cgpt-icon-grid')) return;
+  // Remove previous grid if it exists (for re-initialization)
+  const existing = document.getElementById('cgpt-icon-grid');
+  if (existing) existing.remove();
   const dark    = isDark();
   const iconClr = dark ? '#c9cdd4' : '#4b5563';
   const hoverBg = dark ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,.07)';
@@ -2438,8 +2481,12 @@ function _schedInject() {
   requestAnimationFrame(() => {
     _riInject = false;
     if (!_dead && _s.bulkActions) {
-      injectCheckboxes();
-      if (_s.alphaMode) _renderVaultHeader();
+      try {
+        injectCheckboxes();
+        if (_s.alphaMode) _renderVaultHeader();
+      } catch (e) {
+        console.error('[CGPT+] Error in injectCheckboxes:', e);
+      }
     }
   });
 }
@@ -2449,7 +2496,12 @@ function _schedObserve() {
 }
 function _schedBadge() {
   if (_riBadge) return; _riBadge = true;
-  requestAnimationFrame(() => { _riBadge = false; if (!_dead && _s.modelBadge) setupModelBadge(); });
+  requestAnimationFrame(() => {
+    _riBadge = false;
+    if (!_dead && _s.modelBadge) {
+      try { setupModelBadge(); } catch (e) { console.error('[CGPT+] Error in setupModelBadge:', e); }
+    }
+  });
 }
 function _schedSidebar() {
   if (_riSidebar) return; _riSidebar = true;
@@ -2477,10 +2529,10 @@ const _mutObs = new MutationObserver(mutations => {
       }
       // Slow path — only enter if needed and node actually has children
       if (node.children?.length) {
-        if (!_riInject  && _s.bulkActions    && _nodeHasSel(node, 'sidebarLink'))                        _schedInject();
+        if (!_riInject && _s.bulkActions && (_nodeHasSel(node, 'sidebarLink') || node.classList?.contains('cgpt-bulk-item'))) _schedInject();
         if (!_riObserve && _s.lagFix         && node.querySelector('[data-message-author-role]'))        _schedObserve();
         if (!_riBadge   && _s.modelBadge     && _nodeHasSel(node, 'modelBtn'))                          _schedBadge();
-        if (!_riSidebar && _s.compactSidebar && node.querySelector('a[href="/images"],a[href="/apps"]')) _schedSidebar();
+        if (!_riSidebar && _s.compactSidebar && _nodeHasSel(node, 'sidebarTools')) _schedSidebar();
       }
     }
     if (!_riBadge) {
@@ -2509,12 +2561,13 @@ function _onNav() {
   document.getElementById('cgpt-ctx-warn')?.remove();
   document.getElementById('cgpt-ctx-popover')?.remove();
   _cgptGridRetried = false;
+  console.log('[CGPT+] Navigation detected, re-initializing features');
 
   requestAnimationFrame(() => {
-    if (_s.compactSidebar) setupCompactSidebar();
+    if (_s.compactSidebar) { try { setupCompactSidebar(); } catch (e) { console.error('[CGPT+] _onNav compactSidebar error:', e); } }
     if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); }
     requestAnimationFrame(() => {
-      if (_s.modelBadge) setupModelBadge(true);
+      if (_s.modelBadge) { try { setupModelBadge(true); } catch (e) { console.error('[CGPT+] _onNav modelBadge error:', e); } }
       if (_s.contextBar || _s.contextWarning) {
         if (_s.contextBar) _getOrCreateCtxBar();
         const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
@@ -2522,8 +2575,10 @@ function _onNav() {
         else { _teardownCtxRefreshObserver(); _renderCtxBar(); }
       }
       if (_s.bulkActions) {
-        injectCheckboxes();
-        if (_s.alphaMode) setupVault();
+        try {
+          injectCheckboxes();
+          if (_s.alphaMode) setupVault();
+        } catch (e) { console.error('[CGPT+] _onNav bulkActions error:', e); }
       }
       // Decrypt observer: active only when viewing an encrypted chat
       const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
@@ -2694,10 +2749,11 @@ setTimeout(() => {
   _syncGet(DEFAULT_SETTINGS).then(stored => {
     if (!_extCtxOk()) return; // context died before we got storage data
     _s = { ...DEFAULT_SETTINGS, ...stored };
+    console.log('[CGPT+] Settings loaded:', _s);
     // Critical path — run immediately (affect visible content)
-    if (_s.lagFix)     setupVirtualization();
-    if (_s.modelBadge) setupModelBadge();
-    if (_s.contextBar || _s.contextWarning) setupContextBar();
+    if (_s.lagFix)     { setupVirtualization(); console.log('[CGPT+] Virtualization enabled'); }
+    if (_s.modelBadge) { setupModelBadge(); console.log('[CGPT+] Model badge initialized'); }
+    if (_s.contextBar || _s.contextWarning) { setupContextBar(); console.log('[CGPT+] Context bar initialized'); }
     // Non-critical — defer to idle so we don't block first paint
     // Always install the fetch interceptor — needed for vault encryption
     // even when contextBar/contextWarning are both off.
@@ -2705,15 +2761,45 @@ setTimeout(() => {
     _setupSendInterceptor();
     _idle(() => {
       if (_s.bulkActions) {
-        injectCheckboxes();
-        if (_s.alphaMode) setupVault();
+        try {
+          injectCheckboxes();
+          console.log('[CGPT+] Checkboxes injected (bulkActions)');
+          if (_s.alphaMode) setupVault();
+        } catch (e) { console.error('[CGPT+] Error injecting checkboxes:', e); }
       }
-      if (_s.compactSidebar) setupCompactSidebar();
-      if (_s.dateGroups)     setupDateGroups();
+      if (_s.compactSidebar) {
+        try {
+          setupCompactSidebar();
+          console.log('[CGPT+] Compact sidebar initialized');
+        } catch (e) { console.error('[CGPT+] Error setting up compact sidebar:', e); }
+      }
+      if (_s.dateGroups) {
+        try {
+          setupDateGroups();
+          console.log('[CGPT+] Date groups initialized');
+        } catch (e) { console.error('[CGPT+] Error setting up date groups:', e); }
+      }
     });
     _startWatchdog();
 
     console.log('[CGPT+] v3.5.1 ready');
+    
+    // Schedule re-check after 3 seconds to ensure features are working
+    setTimeout(() => {
+      const cbCount = document.querySelectorAll('.cgpt-cb').length;
+      const gridExists = !!document.getElementById('cgpt-icon-grid');
+      console.log(`[CGPT+] Re-check: ${cbCount} checkboxes, icon-grid: ${gridExists}`);
+      // If checkboxes should be enabled but aren't found, force re-inject
+      if (_s.bulkActions && cbCount === 0 && document.querySelectorAll('a[href^="/c/"]').length > 0) {
+        console.log('[CGPT+] No checkboxes found, forcing re-injection...');
+        try { injectCheckboxes(); } catch (e) { console.error('[CGPT+] Force re-inject failed:', e); }
+      }
+      // If compact sidebar should be enabled but isn't found, force setup
+      if (_s.compactSidebar && !gridExists && document.querySelector('a[href="/images"]')) {
+        console.log('[CGPT+] Icon grid not found, forcing setup...');
+        try { setupCompactSidebar(); } catch (e) { console.error('[CGPT+] Force setup failed:', e); }
+      }
+    }, 3000);
   });
 }, 150);
 
