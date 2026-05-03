@@ -1,106 +1,163 @@
+<div align="center">
+
 # ChatGPT Enhanced
 
-![Version](https://img.shields.io/badge/version-3.5.1-0a7ea4)
-![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-3c873a)
-![Target](https://img.shields.io/badge/Target-chatgpt.com-111111)
-![Status](https://img.shields.io/badge/status-active_canary-f59e0b)
+**Privacy-first Chrome extension that optimizes ChatGPT's UI with performance tuning, smart organization, and powerful workflow features — all processed locally in your browser.**
 
-ChatGPT Enhanced is a privacy-first Chrome extension that upgrades the ChatGPT web UI with performance, organization, and workflow features while keeping all processing local to your browser.
+![Version](https://img.shields.io/badge/Version-3.5.1-0a7ea4?style=flat-square)
+![Chrome](https://img.shields.io/badge/Chrome-MV3-3c873a?style=flat-square&logo=googlechrome&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Web-FF6D00?style=flat-square&logo=googlechrome&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Production-22C55E?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 
-## Highlights
+</div>
 
-- Typing lag reduction for long chats via viewport-based rendering optimization.
-- Bulk chat actions in the sidebar: select, archive, delete, and export.
-- Live model badge and context-usage bar with warning states.
-- Date-grouped chat history for faster navigation.
-- Optional Chat Vault with PIN-based lock/hide flow.
-- Compact sidebar mode with icon-grid shortcuts.
+---
 
-## Privacy and Data Handling
+## ✨ Features
 
-- No external backend, telemetry, analytics, or account system.
-- Extension traffic targets only ChatGPT/OpenAI web APIs required for feature parity.
-- Settings are stored in `chrome.storage.sync`.
-- Session/header/cache and vault metadata are stored in `chrome.storage.local`.
-- Conversation content is processed in-memory for rendering/exports and not sent to third-party services.
+| # | Feature | What It Does |
+|---|---------|-------------|
+| 01 | **Typing Lag Fix** | Virtualized message rendering eliminates lag in long conversations |
+| 02 | **Compact Sidebar** | Icon-grid navigation replaces verbose text entries for faster access |
+| 03 | **Bulk Actions** | Select, archive, delete, and export multiple conversations at once |
+| 04 | **Model Badge** | Live display of current model with auto-fallback for accuracy |
+| 05 | **Context Bar** | Real-time token usage and warning states for context management |
+| 06 | **Date Groups** | Organized, collapsible chat history by time period |
+| 07 | **Chat Vault** | PIN-protected hidden chats with optional full encryption |
+| 08 | **Header Capture** | Automatic auth header extraction for API data accuracy |
+| 09 | **Smart Selectors** | Fallback selector arrays ensure resilience across ChatGPT updates |
+| 10 | **Zero Analytics** | No tracking, no telemetry, no external dependencies |
+| 11 | **Privacy First** | All data stays local—settings in chrome.storage.sync only |
 
-## Reliability Strategy
+---
 
-To reduce breakage when ChatGPT UI or DOM structures evolve, the extension uses:
+## 🚀 Quick Start
 
-- Selector fallback arrays for key anchors (sidebar links, model buttons, header banners).
-- A single shared mutation observer with narrow scheduling gates.
-- Feature-specific retries for early-load race conditions.
-- Header capture from outbound backend requests to keep API-backed data accurate.
+### Installation
 
-## Feature Set
+1. **Clone and load:**
+   \\\ash
+   git clone https://github.com/aryan-astra/ChatGPT-Enhanced-Extension.git
+   cd chatgpt-enhanced
+   \\\
 
-- Typing Lag Fix: Optimizes offscreen message rendering.
-- Compact Sidebar: Replaces verbose nav entries with a compact icon strip.
-- Bulk Actions: Select all, archive, delete, and export flows.
-- Model Badge: Displays active model label and fallback warning behavior.
-- Context Bar and Warning: Shows context utilization and max-token warnings.
-- Date Groups: Adds collapsible time buckets in chat history.
-- Chat Vault (Alpha path): PIN-protected hidden chats and vault header controls.
+2. **Open Chrome extensions:**
+   - Go to \chrome://extensions\
+   - Enable **Developer mode** (toggle in top-right)
+   - Click **Load unpacked**
+   - Select the cloned folder
 
-## Project Structure
+3. **Visit ChatGPT:**
+   - Open \https://chatgpt.com\
+   - Extension popup in the toolbar to configure features
 
-```text
-chatgpt-enhanced/
-  manifest.json          Extension metadata (MV3)
-  background.js          Service worker (header capture + action state)
-  content.js             Main runtime and feature logic
-  popup.html             Extension popup shell
-  popup.js               Popup setting handlers
-  popup.css              Popup styling
-  styles.css             Injected page styles
-  assets/                Icons and branding assets
-  tests/                 Test scaffold
-```
+### Testing
 
-## Installation (Local)
+\\\ash
+npm run test:full
+npm run playwright:diagnose
+\\\
 
-1. Clone this repository.
-2. Open `chrome://extensions`.
-3. Enable Developer mode.
-4. Click Load unpacked.
-5. Select the repository root folder.
-6. Open `chatgpt.com` and use the extension popup to configure features.
+See [TESTING.md](TESTING.md) for detailed instructions.
 
-## Development
+---
 
-```bash
-git clone <your-fork-url>
-cd chatgpt-enhanced
-npm install
+## 🏗️ Architecture
+
+### Reliability Strategy
+
+To stay compatible as ChatGPT evolves:
+
+- **Selector Fallbacks** — Multiple selector paths per element
+- **Single Observer** — One shared MutationObserver with narrow scheduling gates
+- **Feature Retries** — Auto-recheck at 3s to recover from race conditions
+- **Header Extraction** — Auth headers captured for API data accuracy
+
+### Performance Optimizations
+
+- **Zero Polling** — Event-driven updates only
+- **Layout Efficiency** — Batched DOM updates via requestAnimationFrame
+- **CSS-First** — Visibility controlled by CSS :hover and :checked rules
+- **O(1) Checks** — Fast-path attribute validation before traversal
+
+### Key Files
+
+\\\
+manifest.json          Extension metadata (MV3)
+background.js          Service worker (120 lines)
+content.js             Main runtime (~2600 lines)
+popup.html/js/css      Settings UI
+styles.css             Injected page styles
+assets/                Logo icons (48px, 128px)
+tools/                 Playwright test scripts
+\\\
+
+---
+
+## 🔒 Privacy & Data
+
+| Component | Storage | Detail |
+|-----------|---------|--------|
+| **Settings** | chrome.storage.sync | Feature toggles |
+| **Headers** | chrome.storage.local | Auth (temp, auto-cleared) |
+| **Chat Data** | In-memory only | Never sent outside browser |
+| **Vault** | chrome.storage.local | Encrypted IDs with PIN lock |
+
+✅ **No external APIs** — No analytics, no backend, no third-party services
+
+---
+
+## 🛠️ Development
+
+### Prerequisites
+
+- Node.js (for test tools)
+- Chrome/Chromium browser
+- Git
+
+### Validate Code
+
+\\\ash
 node --check content.js
 node --check background.js
 node --check popup.js
-```
+\\\
 
-Reload the extension from `chrome://extensions` after each source change.
+### Git Workflow
 
-## Branching and Release Flow
+\\\ash
+git checkout main          # Production-ready code
+git checkout canary        # Testing new features
+\\\
 
-- `canary`: integration and hardening branch.
-- `main`: stable release branch.
+---
 
-Recommended flow:
+## 📋 Browser Support
 
-1. Implement and validate on `canary`.
-2. Verify feature behavior on current ChatGPT UI.
-3. Merge `canary` into `main` after validation.
-4. Bump `manifest.json` version for release.
+- ✅ Chrome / Edge (MV3)
+- ✅ chatgpt.com, *.chatgpt.com, chat.openai.com, *.openai.com
+- ⚠️ Firefox and Safari — not supported (MV3 required)
 
-## Permissions
+---
 
-- `activeTab`, `tabs`: active-tab messaging and icon enablement.
-- `storage`: persistent settings and local runtime metadata.
-- `webRequest`: capture outbound auth and `oai-*` headers for API-backed features.
-- `scripting`: MV3 runtime capability.
-- `host_permissions`: scoped to ChatGPT/OpenAI domains in the manifest.
+## 🤝 Contributing
 
-## Notes
+1. **Test** — Run \
+pm run test:full\ to verify
+2. **Report** — Create issue with console logs
+3. **Code** — PRs welcome; follow selector fallback pattern
 
-- This project is independent and not affiliated with OpenAI.
-- ChatGPT and OpenAI are trademarks of their respective owners.
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE)
+
+---
+
+## 🙏 Acknowledgments
+
+Inspired by real ChatGPT usage patterns and built with performance & privacy first.
+
+[GitHub Issues](https://github.com/aryan-astra/ChatGPT-Enhanced-Extension/issues)
