@@ -329,9 +329,12 @@ let _vaultOpen   = false;
 let _vaultTimer  = 0;
 
 function _cbShow(cb, checked, hover = false) {
-  const v = checked || hover;
-  cb.style.opacity       = v ? '1' : '0';
-  cb.style.pointerEvents = v ? 'auto' : 'none';
+  // IMPORTANT: Do NOT use inline styles here as they override CSS :hover rules
+  // The CSS handles visibility via:
+  // - .cgpt-bulk-item:hover .cgpt-cb { opacity: 1 !important }
+  // - .cgpt-cb:checked { opacity: 1 !important }
+  // This function is kept for backward compatibility but now only logs
+  console.log(`[CGPT+] _cbShow called: checkbox=${cb?.className}, checked=${checked}, hover=${hover}`);
 }
 
 function injectCheckboxes() {
