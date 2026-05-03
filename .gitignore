@@ -1,11 +1,13 @@
 # Developer notes — not part of the extension
 updates-till-now.md
 
-# Playwright artifacts
+# Playwright artifacts and test data
 .playwright-mcp/
 chatgpt.com.txt
 playwright-report/
 test-results/
+playwright-user-data/
+playwright-user-data-test/
 *.zip
 
 # Logs and debug dumps
