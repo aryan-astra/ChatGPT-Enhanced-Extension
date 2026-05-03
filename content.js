@@ -1,11 +1,11 @@
-﻿// ===========================================================================
-// ChatGPT Enhanced - content.js  v3.5.1
+// ===========================================================================
+// Modus - content.js  v3.5.1
 // Performance-first rewrite: zero unnecessary timers, zero layout thrash,
 // zero redundant DOM traversals, minimal MutationObserver scope.
 // ===========================================================================
 (function () {
 'use strict';
-console.log('[CGPT+] Content script loaded at', new Date().toLocaleTimeString());
+console.log('[Modus] Content script loaded at', new Date().toLocaleTimeString());
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -260,19 +260,19 @@ function _vFlush() {
   // WRITE pass — no layout reads here
   requestAnimationFrame(() => {
     hides.forEach(el => {
-      if (el.dataset.cgptV) return;
+      if (el.dataset.modusV) return;
       el.style.contentVisibility        = 'auto';
       el.style.containIntrinsicBlockSize = _msgH.get(el) + 'px';
-      el.dataset.cgptV = '1';
+      el.dataset.modusV = '1';
     });
     shows.forEach(el => {
-      if (!el.dataset.cgptV) return;
+      if (!el.dataset.modusV) return;
       el.style.contentVisibility        = '';
       el.style.containIntrinsicBlockSize = '';
-      delete el.dataset.cgptV;
+      delete el.dataset.modusV;
       // Update height cache in a separate frame — never read layout inside a write frame
       requestAnimationFrame(() => {
-        if (!el.dataset.cgptV) {
+        if (!el.dataset.modusV) {
           const h = el.getBoundingClientRect().height;
           if (h > 20) _msgH.set(el, h);
         }
@@ -286,8 +286,8 @@ function setupVirtualization() {
   _msgObs = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       const el = entry.target;
-      if (!entry.isIntersecting) { if (!el.dataset.cgptV) _vHideQ.push(el); }
-      else                       { if (el.dataset.cgptV)  _vShowQ.push(el); }
+      if (!entry.isIntersecting) { if (!el.dataset.modusV) _vHideQ.push(el); }
+      else                       { if (el.dataset.modusV)  _vShowQ.push(el); }
     });
     if ((_vHideQ.length || _vShowQ.length) && !_vTick) {
       _vTick = true;
@@ -300,19 +300,19 @@ function setupVirtualization() {
 function teardownVirtualization() {
   if (_msgObs) { _msgObs.disconnect(); _msgObs = null; }
   _vHideQ = []; _vShowQ = []; _vTick = false;
-  document.querySelectorAll('[data-cgpt-v]').forEach(el => {
+  document.querySelectorAll('[data-modus-v]').forEach(el => {
     el.style.contentVisibility        = '';
     el.style.containIntrinsicBlockSize = '';
-    delete el.dataset.cgptV;
-    delete el.dataset.cgptVObs;
+    delete el.dataset.modusV;
+    delete el.dataset.modusVObs;
   });
 }
 
 function observeMessages() {
   if (!_msgObs) return;
   _qAllSel('msgBlock').forEach(el => {
-    if (!el.dataset.cgptVObs) {
-      el.dataset.cgptVObs = '1';
+    if (!el.dataset.modusVObs) {
+      el.dataset.modusVObs = '1';
       _msgObs.observe(el);
     }
   });
@@ -331,32 +331,32 @@ let _vaultTimer  = 0;
 function _cbShow(cb, checked, hover = false) {
   // IMPORTANT: Do NOT use inline styles here as they override CSS :hover rules
   // The CSS handles visibility via:
-  // - .cgpt-bulk-item:hover .cgpt-cb { opacity: 1 !important }
-  // - .cgpt-cb:checked { opacity: 1 !important }
+  // - .modus-bulk-item:hover .modus-cb { opacity: 1 !important }
+  // - .modus-cb:checked { opacity: 1 !important }
   // This function is kept for backward compatibility but now only logs
-  console.log(`[CGPT+] _cbShow called: checkbox=${cb?.className}, checked=${checked}, hover=${hover}`);
+  console.log(`[Modus] _cbShow called: checkbox=${cb?.className}, checked=${checked}, hover=${hover}`);
 }
 
 function injectCheckboxes() {
-  if (!document.getElementById('cgpt-cb-css')) {
+  if (!document.getElementById('modus-cb-css')) {
     const s = document.createElement('style');
-    s.id = 'cgpt-cb-css';
+    s.id = 'modus-cb-css';
     s.textContent = `
-      .cgpt-cb{-webkit-appearance:none;appearance:none;position:absolute;left:6px;top:50%;
+      .modus-cb{-webkit-appearance:none;appearance:none;position:absolute;left:6px;top:50%;
         transform:translateY(-50%);width:15px;height:15px;margin:0;padding:0;z-index:99;
         cursor:pointer;flex-shrink:0;box-sizing:border-box;outline:none;
         border:1.5px solid rgba(107,114,128,.55);border-radius:3px;background:#fff;
         transition:opacity .1s,background .12s,border-color .12s;
         opacity:0 !important;pointer-events:none !important;will-change:opacity;}
-      .cgpt-bulk-item:hover .cgpt-cb{opacity:1 !important;pointer-events:auto !important;}
-      .cgpt-cb:focus{outline:none;box-shadow:none;}
-      .dark .cgpt-cb{background:#1e1e22;border-color:rgba(255,255,255,.28);}
-      .cgpt-cb:checked{background:transparent;border-color:rgba(0,0,0,.7);opacity:1 !important;pointer-events:auto !important;}
-      .dark .cgpt-cb:checked{background:transparent;border-color:rgba(255,255,255,.7);}
-      .cgpt-cb:checked::after{content:'';display:block;width:5px;height:9px;
+      .modus-bulk-item:hover .modus-cb{opacity:1 !important;pointer-events:auto !important;}
+      .modus-cb:focus{outline:none;box-shadow:none;}
+      .dark .modus-cb{background:#1e1e22;border-color:rgba(255,255,255,.28);}
+      .modus-cb:checked{background:transparent;border-color:rgba(0,0,0,.7);opacity:1 !important;pointer-events:auto !important;}
+      .dark .modus-cb:checked{background:transparent;border-color:rgba(255,255,255,.7);}
+      .modus-cb:checked::after{content:'';display:block;width:5px;height:9px;
         border:2.5px solid #000;border-top:none;border-left:none;
         transform:rotate(45deg);position:absolute;top:0px;left:4px;}
-      .dark .cgpt-cb:checked::after{border-color:#fff;}`;
+      .dark .modus-cb:checked::after{border-color:#fff;}`;
     document.head.appendChild(s);
   }
 
@@ -364,19 +364,19 @@ function injectCheckboxes() {
   if (!links.length) return;
   let n = 0;
   links.forEach((link, idx) => {
-    if (link.dataset.cgptItem) return;
+    if (link.dataset.modusItem) return;
     const chatId = extractId(link.getAttribute('href'));
     if (!chatId) return;
 
-    link.dataset.cgptItem  = '1';
-    link.dataset.cgptId    = chatId;
-    link.dataset.cgptIndex = idx;
-    link.classList.add('cgpt-bulk-item');
+    link.dataset.modusItem  = '1';
+    link.dataset.modusId    = chatId;
+    link.dataset.modusIndex = idx;
+    link.classList.add('modus-bulk-item');
     link.style.setProperty('position', 'relative', 'important');
     link.style.setProperty('overflow',  'visible',  'important');
 
     const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.className = 'cgpt-cb';
+    cb.type = 'checkbox'; cb.className = 'modus-cb';
     cb.dataset.chatId = chatId; cb.dataset.index = idx;
     cb.checked = _selectedIds.has(chatId);
     _cbShow(cb, cb.checked);
@@ -388,7 +388,7 @@ function injectCheckboxes() {
         const lo = Math.min(+_lastCb.dataset.index, idx);
         const hi = Math.max(+_lastCb.dataset.index, idx);
         const st = _lastCb.checked;
-        document.querySelectorAll('.cgpt-cb').forEach(o => {
+        document.querySelectorAll('.modus-cb').forEach(o => {
           const i = +o.dataset.index;
           if (i >= lo && i <= hi) {
             o.checked = st; _cbShow(o, st);
@@ -406,17 +406,17 @@ function injectCheckboxes() {
     link.insertBefore(cb, link.firstChild);
     if (_s.alphaMode) {
       _ensureLockCss();
-      const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
+      const lkBtn = document.createElement('span'); lkBtn.className = 'modus-lock-icon';
       lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
       lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
-      if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
-      if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
+      if (_lockedIds.has(chatId)) lkBtn.classList.add('modus-is-locked');
+      if (_encryptedIds.has(chatId)) lkBtn.classList.add('modus-is-encrypted');
       link.appendChild(lkBtn);
     }
     n++;
   });
   if (n) {
-    console.log(`[CGPT+] ${n} checkboxes injected`);
+    console.log(`[Modus] ${n} checkboxes injected`);
     // Find the sidebar container (nav or fallback)
     let nav = document.querySelector('nav');
     if (!nav) {
@@ -431,10 +431,10 @@ function injectCheckboxes() {
       nav._cgptHover = true;
       const hoverHandler = (e) => {
         let target = e.target;
-        // Walk up to find .cgpt-bulk-item
+        // Walk up to find .modus-bulk-item
         while (target && target !== nav) {
-          if (target.classList?.contains('cgpt-bulk-item')) {
-            const cb = target.querySelector('.cgpt-cb');
+          if (target.classList?.contains('modus-bulk-item')) {
+            const cb = target.querySelector('.modus-cb');
             if (cb) { 
               _cbShow(cb, cb.checked, true); 
               target.style.setProperty('padding-left', '28px', 'important'); 
@@ -448,9 +448,9 @@ function injectCheckboxes() {
       const outHandler = (e) => {
         let target = e.target;
         while (target && target !== nav) {
-          if (target.classList?.contains('cgpt-bulk-item')) {
+          if (target.classList?.contains('modus-bulk-item')) {
             if (target.contains(e.relatedTarget)) return;
-            const cb = target.querySelector('.cgpt-cb');
+            const cb = target.querySelector('.modus-cb');
             if (cb) { 
               _cbShow(cb, cb.checked, false); 
               if (!cb.checked) target.style.setProperty('padding-left', '', 'important'); 
@@ -487,7 +487,7 @@ function _getSbBg() {
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { _sbBgCache = null; });
 
 function _renderActionBar() {
-  let bar = document.getElementById('cgpt-action-bar');
+  let bar = document.getElementById('modus-action-bar');
   if (_selectedIds.size === 0) { bar?.remove(); return; }
   const dark = isDark();
   const bdr  = dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.10)';
@@ -495,7 +495,7 @@ function _renderActionBar() {
   const btnB = dark ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,.07)';
   const sb   = _getSbBg();
   if (!bar) {
-    bar = document.createElement('div'); bar.id = 'cgpt-action-bar';
+    bar = document.createElement('div'); bar.id = 'modus-action-bar';
     // Column layout: count text on top row, action buttons on bottom row.
     // Sized tall enough to cover the sidebar user-info footer completely.
     // contain:layout style prevents the bar from triggering full-page layout.
@@ -508,17 +508,17 @@ function _renderActionBar() {
 
     const topRow = document.createElement('div');
     Object.assign(topRow.style, { display:'flex', alignItems:'center', gap:'6px' });
-    const cnt = document.createElement('span'); cnt.id = 'cgpt-count';
+    const cnt = document.createElement('span'); cnt.id = 'modus-count';
     Object.assign(cnt.style, { fontWeight:'700', fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:'1' });
     const expBtn = _mkBtn('Export', () => _showExportModal());
-    expBtn.id = 'cgpt-exp-btn';
+    expBtn.id = 'modus-exp-btn';
     Object.assign(expBtn.style, { fontSize:'11px', padding:'4px 8px', flexShrink:'0' });
     topRow.append(cnt, expBtn);
 
     const btnRow = document.createElement('div');
     Object.assign(btnRow.style, { display:'flex', gap:'5px' });
     const lockBtn = _mkBtn('Lock', () => _bulkLock());
-    lockBtn.id = 'cgpt-lock-btn';
+    lockBtn.id = 'modus-lock-btn';
     btnRow.append(
       _mkBtn('All',     () => _selectAll()),
       _mkBtn('None',    () => _deselectAll()),
@@ -526,30 +526,30 @@ function _renderActionBar() {
       _mkBtn('Archive', () => _bulkAction('archive')),
       _mkBtn('Delete',  () => _bulkAction('delete'), true)
     );
-    btnRow.querySelectorAll('.cgpt-ab-btn').forEach(b => b.style.flex = '1');
+    btnRow.querySelectorAll('.modus-ab-btn').forEach(b => b.style.flex = '1');
 
     bar.append(topRow, btnRow);
     document.body.appendChild(bar);
   }
   Object.assign(bar.style, { background:sb, borderTop:`1px solid ${bdr}`, color:clr, boxShadow: dark ? '0 -6px 24px rgba(0,0,0,.55)' : '0 -6px 24px rgba(0,0,0,.12)' });
-  bar.querySelectorAll('.cgpt-ab-btn').forEach(b => {
+  bar.querySelectorAll('.modus-ab-btn').forEach(b => {
     const danger = b.dataset.danger === '1';
     Object.assign(b.style, { background: danger ? '#c0392b' : btnB, color: danger ? '#fff' : clr, border:`1px solid ${danger ? 'transparent' : bdr}` });
   });
-  document.getElementById('cgpt-count').textContent = `${_selectedIds.size} selected`;
-  const lockBtn = document.getElementById('cgpt-lock-btn');
+  document.getElementById('modus-count').textContent = `${_selectedIds.size} selected`;
+  const lockBtn = document.getElementById('modus-lock-btn');
   if (lockBtn) {
     lockBtn.style.display = _s.alphaMode ? '' : 'none';
     const allLocked = _selectedIds.size > 0 && [..._selectedIds].every(id => _lockedIds.has(id));
     lockBtn.textContent = allLocked ? 'Unlock' : 'Lock';
   }
-  const expBtn = document.getElementById('cgpt-exp-btn');
+  const expBtn = document.getElementById('modus-exp-btn');
   if (expBtn) expBtn.style.display = _s.alphaMode ? '' : 'none';
 }
 
 function _mkBtn(label, fn, danger = false) {
   const b = document.createElement('button');
-  b.textContent = label; b.className = 'cgpt-ab-btn'; b.dataset.danger = danger ? '1' : '0';
+  b.textContent = label; b.className = 'modus-ab-btn'; b.dataset.danger = danger ? '1' : '0';
   Object.assign(b.style, { border:'none', borderRadius:'7px', padding:'5px 10px', fontSize:'12px', fontWeight:'500', cursor:'pointer', flexShrink:'0', fontFamily:'inherit', transition:'opacity .1s' });
   b.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); fn(); });
   b.addEventListener('mouseenter', () => b.style.opacity = '.75', { passive: true });
@@ -638,13 +638,13 @@ async function _bulkLock() {
     selected.forEach(id => {
       _lockedIds.delete(id);
       _encryptedIds.delete(id);
-      const link = document.querySelector(`a[data-cgpt-id="${id}"]`);
+      const link = document.querySelector(`a[data-modus-id="${id}"]`);
       if (!link) return;
       link.style.removeProperty('display');
-      delete link.dataset.cgptLocked;
-      delete link.dataset.cgptEncrypted;
-      const lk = link.querySelector('.cgpt-lock-icon');
-      if (lk) { lk.classList.remove('cgpt-is-locked', 'cgpt-is-encrypted'); lk.title = ''; }
+      delete link.dataset.modusLocked;
+      delete link.dataset.modusEncrypted;
+      const lk = link.querySelector('.modus-lock-icon');
+      if (lk) { lk.classList.remove('modus-is-locked', 'modus-is-encrypted'); lk.title = ''; }
     });
   } else {
     // Ask user which protection level they want
@@ -665,14 +665,14 @@ async function _bulkLock() {
       if (_lockedIds.has(id)) return;
       _lockedIds.add(id);
       if (mode === 'encrypt') _encryptedIds.add(id);
-      const link = document.querySelector(`a[data-cgpt-id="${id}"]`);
+      const link = document.querySelector(`a[data-modus-id="${id}"]`);
       if (!link) return;
-      link.dataset.cgptLocked = '1';
-      if (mode === 'encrypt') link.dataset.cgptEncrypted = '1';
-      const lk = link.querySelector('.cgpt-lock-icon');
+      link.dataset.modusLocked = '1';
+      if (mode === 'encrypt') link.dataset.modusEncrypted = '1';
+      const lk = link.querySelector('.modus-lock-icon');
       if (lk) {
-        lk.classList.add('cgpt-is-locked');
-        if (mode === 'encrypt') { lk.classList.add('cgpt-is-encrypted'); lk.title = 'Encrypted'; }
+        lk.classList.add('modus-is-locked');
+        if (mode === 'encrypt') { lk.classList.add('modus-is-encrypted'); lk.title = 'Encrypted'; }
         else { lk.title = 'Hidden'; }
       }
       if (!_vaultOpen) link.style.setProperty('display', 'none', 'important');
@@ -689,7 +689,7 @@ async function _selectAll() {
   let h;
   try { h = await getHeaders(); } catch (e) { if (_isCtxErr(e)) _killScript(); return; }
   if (!_extCtxOk() || !h.authorization) { alert('Auth not captured yet.\nSend a message in ChatGPT first.'); return; }
-  const cnt = document.getElementById('cgpt-count');
+  const cnt = document.getElementById('modus-count');
   const lim = 28; let off = 0, total = Infinity;
   try {
     while (off < total) {
@@ -714,7 +714,7 @@ async function _selectAll() {
     if (!_isCtxErr(e)) alert('Failed to fetch conversations.');
     else _killScript();
   }
-  document.querySelectorAll('.cgpt-cb').forEach(cb => { if (_selectedIds.has(cb.dataset.chatId)) cb.checked = true; });
+  document.querySelectorAll('.modus-cb').forEach(cb => { if (_selectedIds.has(cb.dataset.chatId)) cb.checked = true; });
   _renderActionBar();
 }
 
@@ -722,10 +722,10 @@ function _deselectAll() {
   _selectedIds.clear();
   // Batch all DOM writes in one rAF to avoid repeated style recalcs
   requestAnimationFrame(() => {
-    document.querySelectorAll('.cgpt-cb').forEach(cb => {
+    document.querySelectorAll('.modus-cb').forEach(cb => {
       cb.checked = false;
       _cbShow(cb, false);
-      cb.closest('.cgpt-bulk-item')?.style.removeProperty('padding-left');
+      cb.closest('.modus-bulk-item')?.style.removeProperty('padding-left');
     });
     _renderActionBar(); // size=0 → removes the bar
   });
@@ -743,7 +743,7 @@ async function _bulkAction(action) {
   let h;
   try { h = await getHeaders(); } catch (e) { if (_isCtxErr(e)) _killScript(); return; }
   if (!_extCtxOk() || !h.authorization) { alert('Auth not captured.'); return; }
-  const cnt  = document.getElementById('cgpt-count');
+  const cnt  = document.getElementById('modus-count');
   const ids  = [..._selectedIds];
   const body = action === 'delete' ? { is_visible: false } : { is_archived: true };
   const verb = action === 'delete' ? 'Deleting' : 'Archiving';
@@ -814,12 +814,12 @@ function _modal({ title, message, buttons }) {
 //   • findByText replaced with TreeWalker — traverses TEXT nodes only, not all
 //     elements. O(text-nodes) vs O(all-elements). Zero child-node scanning.
 //   • Removed the secondary gObs MutationObserver — global _mutObs handles it.
-//   • _cgptGridRetried moved from window to module scope — cleaner isolation.
+//   • _modusGridRetried moved from window to module scope — cleaner isolation.
 // ---------------------------------------------------------------------------
-let _cgptGridRetried = false;
+let _modusGridRetried = false;
 function setupCompactSidebar() {
   // Remove previous grid if it exists (for re-initialization)
-  const existing = document.getElementById('cgpt-icon-grid');
+  const existing = document.getElementById('modus-icon-grid');
   if (existing) existing.remove();
   const dark    = isDark();
   const iconClr = dark ? '#c9cdd4' : '#4b5563';
@@ -876,46 +876,46 @@ function setupCompactSidebar() {
   ].filter(Boolean);
   if (!ITEMS.length) return;
 
-  if (ITEMS.length < 5 && !_cgptGridRetried) {
-    _cgptGridRetried = true;
+  if (ITEMS.length < 5 && !_modusGridRetried) {
+    _modusGridRetried = true;
     setTimeout(() => {
-      document.querySelectorAll('[data-cgpt-grid-hidden],[data-cgpt-container-hidden]').forEach(el => {
+      document.querySelectorAll('[data-modus-grid-hidden],[data-modus-container-hidden]').forEach(el => {
         el.style.removeProperty('display');
-        delete el.dataset.cgptGridHidden; delete el.dataset.cgptContainerHidden;
+        delete el.dataset.modusGridHidden; delete el.dataset.modusContainerHidden;
       });
-      document.getElementById('cgpt-icon-grid')?.remove();
-      _cgptGridRetried = false;
+      document.getElementById('modus-icon-grid')?.remove();
+      _modusGridRetried = false;
       setupCompactSidebar();
     }, 500);
   }
 
-  let s = document.getElementById('cgpt-compact-css');
-  if (!s) { s = document.createElement('style'); s.id = 'cgpt-compact-css'; document.head.appendChild(s); }
+  let s = document.getElementById('modus-compact-css');
+  if (!s) { s = document.createElement('style'); s.id = 'modus-compact-css'; document.head.appendChild(s); }
   s.textContent = `
-    #cgpt-icon-grid{display:flex;flex-direction:row;align-items:center;gap:2px;padding:2px 6px 0}
-    .cgpt-grid-btn{position:relative;display:flex;align-items:center;justify-content:center;
+    #modus-icon-grid{display:flex;flex-direction:row;align-items:center;gap:2px;padding:2px 6px 0}
+    .modus-grid-btn{position:relative;display:flex;align-items:center;justify-content:center;
       width:30px;height:30px;flex-shrink:0;padding:0;border:none;border-radius:7px;
       background:transparent;cursor:pointer;color:${iconClr};transition:background .12s;outline:none}
-    .cgpt-grid-btn:hover{background:${hoverBg}}.cgpt-grid-btn:active{background:${actBg}}
-    .cgpt-grid-btn svg,.cgpt-grid-btn img{width:18px;height:18px;pointer-events:none;flex-shrink:0}
-    .cgpt-grid-btn .cgpt-tip{position:absolute;top:calc(100% + 4px);left:50%;
+    .modus-grid-btn:hover{background:${hoverBg}}.modus-grid-btn:active{background:${actBg}}
+    .modus-grid-btn svg,.modus-grid-btn img{width:18px;height:18px;pointer-events:none;flex-shrink:0}
+    .modus-grid-btn .modus-tip{position:absolute;top:calc(100% + 4px);left:50%;
       transform:translateX(-50%) translateY(-2px);white-space:nowrap;
       background:${tipBg};color:${tipClr};border:1px solid ${tipBdr};border-radius:5px;
       padding:2px 8px;font-size:11px;font-weight:500;pointer-events:none;opacity:0;
       transition:opacity .12s,transform .12s;z-index:10000;box-shadow:0 3px 10px rgba(0,0,0,.18);font-family:inherit}
-    .cgpt-grid-btn:hover .cgpt-tip{opacity:1;transform:translateX(-50%) translateY(0)}
+    .modus-grid-btn:hover .modus-tip{opacity:1;transform:translateX(-50%) translateY(0)}
     [role="navigation"]{row-gap:0!important;gap:0!important}
     [role="complementary"]{padding-bottom:0!important;margin-bottom:0!important}
     [role="complementary"]>*{margin-bottom:0!important}`;
 
-  const grid = document.createElement('div'); grid.id = 'cgpt-icon-grid';
+  const grid = document.createElement('div'); grid.id = 'modus-icon-grid';
   ITEMS.forEach(({ native, label, icon }) => {
     native.style.setProperty('display', 'none', 'important');
-    native.dataset.cgptGridHidden = '1';
-    const btn = document.createElement('button'); btn.className = 'cgpt-grid-btn'; btn.setAttribute('aria-label', label);
+    native.dataset.modusGridHidden = '1';
+    const btn = document.createElement('button'); btn.className = 'modus-grid-btn'; btn.setAttribute('aria-label', label);
     if (icon) { const c = icon.cloneNode(true); c.removeAttribute('width'); c.removeAttribute('height'); c.style.cssText = 'width:18px;height:18px;flex-shrink:0'; btn.appendChild(c); }
     else { const fb = document.createElement('span'); fb.textContent = label[0].toUpperCase(); fb.style.cssText = `font-size:13px;font-weight:700;color:${iconClr}`; btn.appendChild(fb); }
-    const tip = document.createElement('span'); tip.className = 'cgpt-tip'; tip.textContent = label; btn.appendChild(tip);
+    const tip = document.createElement('span'); tip.className = 'modus-tip'; tip.textContent = label; btn.appendChild(tip);
     btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); native.click(); });
     grid.appendChild(btn);
   });
@@ -926,9 +926,9 @@ function setupCompactSidebar() {
       if (!ch || ch === sidebar || ch.contains(sidebar)) continue;
       if (_nodeHasSel(ch, 'sidebarLink')) continue;
       if (!ch.children.length) continue;
-      if ([...ch.children].every(c => c.dataset.cgptGridHidden === '1')) {
+      if ([...ch.children].every(c => c.dataset.modusGridHidden === '1')) {
         ch.style.setProperty('display', 'none', 'important');
-        ch.dataset.cgptContainerHidden = '1';
+        ch.dataset.modusContainerHidden = '1';
       }
     }
   }
@@ -960,14 +960,14 @@ function _badgeTheme(down) {
 }
 
 function _buildBadge(btn) {
-  document.getElementById('cgpt-model-badge')?.remove();
+  document.getElementById('modus-model-badge')?.remove();
   const th = _badgeTheme(false);
-  const b  = document.createElement('div'); b.id = 'cgpt-model-badge';
+  const b  = document.createElement('div'); b.id = 'modus-model-badge';
   Object.assign(b.style, { display:'inline-flex', alignItems:'center', gap:'5px', padding:'3px 10px 3px 8px', borderRadius:'8px', border:th.border, background:th.background, color:th.color, fontSize:'13px', fontWeight:'500', fontFamily:'inherit', cursor:'default', userSelect:'none', pointerEvents:'none', flexShrink:'0', transition:'border-color .25s,background .25s,color .25s', marginLeft:'4px' });
   const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('width','14'); svg.setAttribute('height','14'); svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('fill','none'); svg.setAttribute('stroke','currentColor'); svg.setAttribute('stroke-width','2'); svg.setAttribute('stroke-linecap','round'); svg.setAttribute('stroke-linejoin','round');
   svg.innerHTML = `<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>`;
-  const lbl = document.createElement('span'); lbl.id = 'cgpt-badge-label';
+  const lbl = document.createElement('span'); lbl.id = 'modus-badge-label';
   b.append(svg, lbl);
   btn.parentElement.insertBefore(b, btn.nextSibling);
   return b;
@@ -983,9 +983,9 @@ function _readModel(btn) {
   const rank = _modelRank(name);
   if (rank > _maxRank) _maxRank = rank;
   const down = rank !== -1 && _maxRank !== -1 && rank < _maxRank;
-  const lbl = document.getElementById('cgpt-badge-label');
+  const lbl = document.getElementById('modus-badge-label');
   if (lbl) lbl.textContent = name;
-  const b = document.getElementById('cgpt-model-badge');
+  const b = document.getElementById('modus-model-badge');
   if (b) {
     const th = _badgeTheme(down);
     b.style.border = th.border; b.style.background = th.background; b.style.color = th.color;
@@ -1004,8 +1004,8 @@ function _rebuildBadge(btn) {
   // After the badge is rebuilt, reposition the context bar (if active) to sit
   // directly after the new badge element. No remove+recreate — just move it.
   if (_s.contextBar || _s.contextWarning) {
-    const bar   = document.getElementById('cgpt-ctx-bar');
-    const badge = document.getElementById('cgpt-model-badge');
+    const bar   = document.getElementById('modus-ctx-bar');
+    const badge = document.getElementById('modus-model-badge');
     if (bar && badge) {
       // Reposition: insert bar immediately after the badge in its flex row
       if (badge.parentElement) {
@@ -1022,7 +1022,7 @@ function _rebuildBadge(btn) {
 function setupModelBadge(force = false) {
   const btn = _qSel('modelBtn');
   if (!btn) return;
-  if (force || !document.getElementById('cgpt-model-badge')) _rebuildBadge(btn);
+  if (force || !document.getElementById('modus-model-badge')) _rebuildBadge(btn);
   else _readModel(btn);
 
   if (_modelBtnObs) _modelBtnObs.disconnect();
@@ -1033,7 +1033,7 @@ function setupModelBadge(force = false) {
   if (bannerEl) {
     if (_bannerObs) _bannerObs.disconnect();
     _bannerObs = new MutationObserver(() => {
-      if (!document.getElementById('cgpt-model-badge')) {
+      if (!document.getElementById('modus-model-badge')) {
         requestAnimationFrame(() => {
           const b2 = _qSel('modelBtn');
           if (b2) _rebuildBadge(b2);
@@ -1177,9 +1177,9 @@ async function _fetchExtendedData() {
 }
 
 function _getOrCreateCtxBar() {
-  let bar = document.getElementById('cgpt-ctx-bar');
+  let bar = document.getElementById('modus-ctx-bar');
   if (bar) return bar;
-  bar = document.createElement('div'); bar.id = 'cgpt-ctx-bar';
+  bar = document.createElement('div'); bar.id = 'modus-ctx-bar';
   const dark = isDark();
   Object.assign(bar.style, { display:'inline-flex', flexDirection:'column', alignItems:'flex-start', gap:'2px', padding:'4px 9px', borderRadius:'8px', flexShrink:'0', marginLeft:'6px', border: dark ? '1px solid rgba(255,255,255,.14)' : '1px solid rgba(0,0,0,.12)', background: dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.05)', color: dark ? '#ececec' : '#111', fontSize:'11px', fontFamily:'inherit', fontWeight:'500', cursor:'pointer', userSelect:'none', position:'relative' });
   const fc = dark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.40)';
@@ -1187,18 +1187,18 @@ function _getOrCreateCtxBar() {
   // Row 2: feature limit pills (hidden until API data arrives)
   bar.innerHTML = `
     <div style="display:flex;align-items:center;gap:5px;white-space:nowrap">
-      <div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="cgpt-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div>
-      <span id="cgpt-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span>
-      <span id="cgpt-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>
+      <div style="width:52px;height:4px;border-radius:2px;background:rgba(128,128,128,.22);overflow:hidden;flex-shrink:0"><div id="modus-ctx-fill" style="height:100%;width:0%;border-radius:2px;background:${fc};transition:width .4s"></div></div>
+      <span id="modus-ctx-pct" style="min-width:44px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums">…</span>
+      <span id="modus-ctx-files" style="display:none;font-size:10px;opacity:.6;white-space:nowrap"></span>
     </div>
-    <div id="cgpt-ctx-limits" style="display:none;font-size:10px;opacity:.6;white-space:nowrap;line-height:1.1"></div>
+    <div id="modus-ctx-limits" style="display:none;font-size:10px;opacity:.6;white-space:nowrap;line-height:1.1"></div>
   `;
   bar.addEventListener('click', _toggleCtxPopover);
   bar.title = 'Click for context details';
 
   // Insert bar directly after the badge (or model button) in the same flex row.
   // Do NOT walk up to header level — that puts it outside the left flex container.
-  const anchor = document.getElementById('cgpt-model-badge')
+  const anchor = document.getElementById('modus-model-badge')
               ?? _qSel('modelBtn');
   if (anchor?.parentElement) {
     anchor.parentElement.insertBefore(bar, anchor.nextSibling);
@@ -1220,8 +1220,8 @@ function _renderCtxBar(immediate = false) {
     const pct  = _ctxToks > 0 ? Math.min(100, Math.round((_ctxToks / _ctxWin) * 100)) : 0;
     const dark = isDark();
     const fc   = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f97316' : dark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.40)';
-    const fill = document.getElementById('cgpt-ctx-fill');
-    const lbl  = document.getElementById('cgpt-ctx-pct');
+    const fill = document.getElementById('modus-ctx-fill');
+    const lbl  = document.getElementById('modus-ctx-pct');
     if (fill) { fill.style.width = pct + '%'; fill.style.background = fc; }
     // Show absolute token counts: e.g. "14k / 128k"
     if (lbl) {
@@ -1234,7 +1234,7 @@ function _renderCtxBar(immediate = false) {
       }
     }
     // File attachment count indicator — only show when API limit data is absent
-    const fEl = document.getElementById('cgpt-ctx-files');
+    const fEl = document.getElementById('modus-ctx-files');
     if (fEl) {
       if (_ctxFiles > 0 && !_limitsProgress.file_upload) {
         fEl.style.display = '';
@@ -1244,7 +1244,7 @@ function _renderCtxBar(immediate = false) {
       }
     }
     // Inline quota summary — all limits with icons
-    const lEl = document.getElementById('cgpt-ctx-limits');
+    const lEl = document.getElementById('modus-ctx-limits');
     if (lEl) {
       const PILL_META = {
         deep_research:      { icon: '\uD83D\uDD2D' },
@@ -1279,9 +1279,9 @@ function _renderCtxBar(immediate = false) {
   });
 }
 
-function _showCtxWarn() {  if (!_s.contextWarning || document.getElementById('cgpt-ctx-warn')) return;
+function _showCtxWarn() {  if (!_s.contextWarning || document.getElementById('modus-ctx-warn')) return;
   const dark = isDark();
-  const w = document.createElement('div'); w.id = 'cgpt-ctx-warn';
+  const w = document.createElement('div'); w.id = 'modus-ctx-warn';
   Object.assign(w.style, { position:'fixed', bottom:'84px', left:'50%', transform:'translateX(-50%)', zIndex:'999998', background: dark ? '#1e1e1e' : '#fff', border:'1px solid #ef4444', borderRadius:'10px', padding:'11px 14px', color: dark ? '#ececec' : '#111', fontSize:'13px', boxShadow:'0 8px 32px rgba(0,0,0,.55)', display:'flex', alignItems:'center', gap:'10px', maxWidth:'min(480px,92vw)' });
   w.innerHTML = `<span style="font-size:16px;flex-shrink:0">⚠️</span><span style="line-height:1.45"><strong style="color:#ef4444">Context window full</strong> — ChatGPT is now forgetting your earliest messages. <a href="/" style="color:#10a37f;text-decoration:none;font-weight:600;margin-left:4px">Start a new chat</a></span><button style="background:none;border:none;color:rgba(128,128,128,.7);cursor:pointer;font-size:17px;padding:0;flex-shrink:0;line-height:1" title="Dismiss">✕</button>`;
   w.querySelector('button').onclick = () => w.remove();
@@ -1420,13 +1420,13 @@ async function _fetchCtxData(chatId, retries = 5) {
     // Sync model badge directly from API slug — the button's aria-label often
     // just says "Auto" which is useless. The API response has the real model.
     if (slug && _s.modelBadge) {
-      const lbl = document.getElementById('cgpt-badge-label');
+      const lbl = document.getElementById('modus-badge-label');
       if (lbl) {
         lbl.textContent = slug;
         const rank = _modelRank(slug);
         if (rank > _maxRank) _maxRank = rank;
         const down = rank !== -1 && _maxRank !== -1 && rank < _maxRank;
-        const b = document.getElementById('cgpt-model-badge');
+        const b = document.getElementById('modus-model-badge');
         if (b) {
           const th = _badgeTheme(down);
           b.style.border = th.border; b.style.background = th.background; b.style.color = th.color;
@@ -1474,9 +1474,9 @@ function setupContextBar() {
 }
 
 function teardownContextBar() {
-  document.getElementById('cgpt-ctx-bar')?.remove();
-  document.getElementById('cgpt-ctx-warn')?.remove();
-  document.getElementById('cgpt-ctx-popover')?.remove();
+  document.getElementById('modus-ctx-bar')?.remove();
+  document.getElementById('modus-ctx-warn')?.remove();
+  document.getElementById('modus-ctx-popover')?.remove();
   _teardownCtxRefreshObserver();
   _ctxToks = 0;
   _ctxFiles = 0;
@@ -1526,13 +1526,13 @@ function _teardownCtxRefreshObserver() {
 // Context Intelligence Popover — detailed stats on click
 // ---------------------------------------------------------------------------
 function _toggleCtxPopover() {
-  const existing = document.getElementById('cgpt-ctx-popover');
+  const existing = document.getElementById('modus-ctx-popover');
   if (existing) { existing.remove(); return; }
-  const bar = document.getElementById('cgpt-ctx-bar');
+  const bar = document.getElementById('modus-ctx-bar');
   if (!bar) return;
   const dark = isDark();
   const pop = document.createElement('div');
-  pop.id = 'cgpt-ctx-popover';
+  pop.id = 'modus-ctx-popover';
   const rect = bar.getBoundingClientRect();
   Object.assign(pop.style, {
     position:'fixed',
@@ -1556,7 +1556,7 @@ function _toggleCtxPopover() {
   const fc   = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f97316' : '#10a37f';
   const used = _ctxToks > 0 ? (_ctxToks >= 1000 ? (_ctxToks / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : _ctxToks) : '—';
   const win  = _ctxWin >= 1000 ? Math.round(_ctxWin / 1000) + 'k' : _ctxWin;
-  const model = _ctxModel || document.getElementById('cgpt-badge-label')?.textContent || '—';
+  const model = _ctxModel || document.getElementById('modus-badge-label')?.textContent || '—';
 
   // File section: use real API data if available, otherwise fall back to local estimate
   const f = _ctxFiles;
@@ -1752,9 +1752,9 @@ async function setupDateGroups() {
 
   if (!_extCtxOk()) { _dgSetup = false; return; }
 
-  if (!document.getElementById('cgpt-dg-css')) {
-    const s = document.createElement('style'); s.id = 'cgpt-dg-css';
-    s.textContent = `.cgpt-dg-hdr{display:flex;align-items:center;gap:4px;padding:10px 12px 2px;font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;opacity:.40;cursor:pointer;user-select:none;background:none;border:none;width:100%;text-align:left;font-family:inherit;color:inherit;box-sizing:border-box}.cgpt-dg-hdr:hover{opacity:.65}.cgpt-dg-arr{font-size:7px;display:inline-block;transition:transform .15s;flex-shrink:0}.cgpt-dg-hdr.cgpt-dg-col .cgpt-dg-arr{transform:rotate(-90deg)}.cgpt-dg-hidden{display:none!important}`;
+  if (!document.getElementById('modus-dg-css')) {
+    const s = document.createElement('style'); s.id = 'modus-dg-css';
+    s.textContent = `.modus-dg-hdr{display:flex;align-items:center;gap:4px;padding:10px 12px 2px;font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;opacity:.40;cursor:pointer;user-select:none;background:none;border:none;width:100%;text-align:left;font-family:inherit;color:inherit;box-sizing:border-box}.modus-dg-hdr:hover{opacity:.65}.modus-dg-arr{font-size:7px;display:inline-block;transition:transform .15s;flex-shrink:0}.modus-dg-hdr.modus-dg-col .modus-dg-arr{transform:rotate(-90deg)}.modus-dg-hidden{display:none!important}`;
     document.head.appendChild(s);
   }
 
@@ -1770,17 +1770,17 @@ async function setupDateGroups() {
   links.forEach(link => {
     const id  = extractId(link.getAttribute('href'));
     const bkt = (id && idMap[id]) || 'Older';
-    link.dataset.cgptDgBucket = bkt;
+    link.dataset.modusDgBucket = bkt;
     if (bkt !== lastBkt) {
       lastBkt = bkt; colState[bkt] = false;
       const hdr = document.createElement('button');
-      hdr.className = 'cgpt-dg-hdr'; hdr.dataset.cgptDgHdr = bkt;
-      hdr.innerHTML = `<span class="cgpt-dg-arr">&#9660;</span>${bkt}`;
+      hdr.className = 'modus-dg-hdr'; hdr.dataset.modusDgHdr = bkt;
+      hdr.innerHTML = `<span class="modus-dg-arr">&#9660;</span>${bkt}`;
       hdr.onclick = () => {
         colState[bkt] = !colState[bkt];
-        hdr.classList.toggle('cgpt-dg-col', colState[bkt]);
-        document.querySelectorAll(`[data-cgpt-dg-bucket="${bkt}"]`)
-          .forEach(l => l.classList.toggle('cgpt-dg-hidden', colState[bkt]));
+        hdr.classList.toggle('modus-dg-col', colState[bkt]);
+        document.querySelectorAll(`[data-modus-dg-bucket="${bkt}"]`)
+          .forEach(l => l.classList.toggle('modus-dg-hidden', colState[bkt]));
       };
       if (link.parentElement) link.parentElement.insertBefore(hdr, link);
     }
@@ -1789,12 +1789,12 @@ async function setupDateGroups() {
 
 function teardownDateGroups() {
   _dgSetup = false;
-  document.querySelectorAll('[data-cgpt-dg-hdr]').forEach(el => el.remove());
-  document.querySelectorAll('[data-cgpt-dg-bucket]').forEach(el => {
-    el.classList.remove('cgpt-dg-hidden');
-    delete el.dataset.cgptDgBucket;
+  document.querySelectorAll('[data-modus-dg-hdr]').forEach(el => el.remove());
+  document.querySelectorAll('[data-modus-dg-bucket]').forEach(el => {
+    el.classList.remove('modus-dg-hidden');
+    delete el.dataset.modusDgBucket;
   });
-  document.getElementById('cgpt-dg-css')?.remove();
+  document.getElementById('modus-dg-css')?.remove();
 }
 
 // ---------------------------------------------------------------------------
@@ -1802,18 +1802,18 @@ function teardownDateGroups() {
 // ---------------------------------------------------------------------------
 
 function _ensureLockCss() {
-  if (document.getElementById('cgpt-lock-css')) return;
-  const s = document.createElement('style'); s.id = 'cgpt-lock-css';
+  if (document.getElementById('modus-lock-css')) return;
+  const s = document.createElement('style'); s.id = 'modus-lock-css';
   // Lock icon is a static visual indicator only — no pointer-events.
-  // It becomes visible (amber) only when the chat is locked (cgpt-is-locked).
+  // It becomes visible (amber) only when the chat is locked (modus-is-locked).
   s.textContent = `
-    .cgpt-lock-icon{position:absolute;right:34px;top:50%;transform:translateY(-50%);
+    .modus-lock-icon{position:absolute;right:34px;top:50%;transform:translateY(-50%);
       display:flex;align-items:center;justify-content:center;
       width:18px;height:18px;border-radius:4px;
       opacity:0;pointer-events:none;
       transition:opacity .12s;z-index:100;color:#f59e0b;}
-    .cgpt-lock-icon.cgpt-is-locked{opacity:1 !important;}
-    .cgpt-lock-icon.cgpt-is-encrypted{opacity:1 !important;color:#3b82f6 !important;}`;
+    .modus-lock-icon.modus-is-locked{opacity:1 !important;}
+    .modus-lock-icon.modus-is-encrypted{opacity:1 !important;color:#3b82f6 !important;}`;
   document.head.appendChild(s);
 }
 
@@ -1900,10 +1900,10 @@ async function _toggleLockChat(chatId, link) {
     _lockedIds.delete(chatId);
     _encryptedIds.delete(chatId);
     link.style.removeProperty('display');
-    delete link.dataset.cgptLocked;
-    delete link.dataset.cgptEncrypted;
-    const lk = link.querySelector('.cgpt-lock-icon');
-    if (lk) { lk.classList.remove('cgpt-is-locked', 'cgpt-is-encrypted'); lk.title = ''; }
+    delete link.dataset.modusLocked;
+    delete link.dataset.modusEncrypted;
+    const lk = link.querySelector('.modus-lock-icon');
+    if (lk) { lk.classList.remove('modus-is-locked', 'modus-is-encrypted'); lk.title = ''; }
   } else {
     // Not locked — set PIN if first time, then lock
     let stored;
@@ -1916,9 +1916,9 @@ async function _toggleLockChat(chatId, link) {
       catch (e) { if (_isCtxErr(e)) _killScript(); return; }
     }
     _lockedIds.add(chatId);
-    link.dataset.cgptLocked = '1';
-    const lk = link.querySelector('.cgpt-lock-icon');
-    if (lk) { lk.classList.add('cgpt-is-locked'); lk.title = 'Hidden'; }
+    link.dataset.modusLocked = '1';
+    const lk = link.querySelector('.modus-lock-icon');
+    if (lk) { lk.classList.add('modus-is-locked'); lk.title = 'Hidden'; }
     if (!_vaultOpen) link.style.setProperty('display','none','important');
   }
   try { await _storeSet({ cgpt_locked_ids: [..._lockedIds], cgpt_encrypted_ids: [..._encryptedIds] }); }
@@ -1928,9 +1928,9 @@ async function _toggleLockChat(chatId, link) {
 
 let _vaultHdrRetry = 0;
 function _renderVaultHeader() {
-  if (!_s.alphaMode) { document.getElementById('cgpt-vault-hdr')?.remove(); return; }
+  if (!_s.alphaMode) { document.getElementById('modus-vault-hdr')?.remove(); return; }
   const count = _lockedIds.size;
-  let hdr = document.getElementById('cgpt-vault-hdr');
+  let hdr = document.getElementById('modus-vault-hdr');
 
   const firstLink = _qSel('sidebarLink');
   const navEl = firstLink?.closest('nav') ?? document.querySelector('nav[aria-label]') ?? document.querySelector('nav');
@@ -1942,7 +1942,7 @@ function _renderVaultHeader() {
   _vaultHdrRetry = 0;
 
   if (!hdr) {
-    hdr = document.createElement('button'); hdr.id = 'cgpt-vault-hdr';
+    hdr = document.createElement('button'); hdr.id = 'modus-vault-hdr';
     const dark = isDark();
     Object.assign(hdr.style, {
       display:'flex', alignItems:'center', gap:'8px', width:'100%',
@@ -1990,7 +1990,7 @@ async function _openVault() {
   const stored = (await _storeGet(['cgpt_pin_hash'])).cgpt_pin_hash;
   if (stored) { const pin = await _vaultPinModal('verify'); if (!pin) return; }
   _vaultOpen = true;
-  document.querySelectorAll('[data-cgpt-locked="1"]').forEach(l => l.style.removeProperty('display'));
+  document.querySelectorAll('[data-modus-locked="1"]').forEach(l => l.style.removeProperty('display'));
   _renderVaultHeader();
   clearTimeout(_vaultTimer);
   _vaultTimer = setTimeout(_closeVault, 3 * 60 * 1000); // auto-relock after 3 min
@@ -1998,7 +1998,7 @@ async function _openVault() {
 
 function _closeVault() {
   _vaultOpen = false; clearTimeout(_vaultTimer);
-  document.querySelectorAll('[data-cgpt-locked="1"]').forEach(l => l.style.setProperty('display','none','important'));
+  document.querySelectorAll('[data-modus-locked="1"]').forEach(l => l.style.setProperty('display','none','important'));
   _renderVaultHeader();
 }
 
@@ -2013,13 +2013,13 @@ async function setupVault() {
     _qAllSel('sidebarLink').forEach(link => {
       const id = extractId(link.getAttribute('href'));
       if (!id || !_lockedIds.has(id)) return;
-      link.dataset.cgptLocked = '1';
-      if (_encryptedIds.has(id)) link.dataset.cgptEncrypted = '1';
+      link.dataset.modusLocked = '1';
+      if (_encryptedIds.has(id)) link.dataset.modusEncrypted = '1';
       if (!_vaultOpen) link.style.setProperty('display','none','important');
-      const lk = link.querySelector('.cgpt-lock-icon');
+      const lk = link.querySelector('.modus-lock-icon');
       if (lk) {
-        lk.classList.add('cgpt-is-locked');
-        if (_encryptedIds.has(id)) { lk.classList.add('cgpt-is-encrypted'); lk.title = 'Encrypted'; }
+        lk.classList.add('modus-is-locked');
+        if (_encryptedIds.has(id)) { lk.classList.add('modus-is-encrypted'); lk.title = 'Encrypted'; }
         else { lk.title = 'Hidden'; }
       }
     });
@@ -2082,7 +2082,7 @@ function _encOutgoing(text, chatId) {
 // Attempt to decrypt a single assistant message <div> and show plain text.
 // Leaves the element completely untouched if it is not valid Base64.
 function _decryptMsgEl(el) {
-  if (el.dataset.cgptDec) return;
+  if (el.dataset.modusDec) return;
   // ChatGPT renders message text into a .markdown / prose div
   const prose = el.querySelector('.markdown, [class*="prose"], [class*="markdown"]')
                  || el.querySelector('[data-message-content]')
@@ -2101,9 +2101,9 @@ function _decryptMsgEl(el) {
     }
   }
   if (!decoded) return; // not Base64 — leave untouched
-  el.dataset.cgptDec = '1';
+  el.dataset.modusDec = '1';
   const overlay = document.createElement('div');
-  overlay.dataset.cgptDecOverlay = '1';
+  overlay.dataset.modusDecOverlay = '1';
   overlay.style.cssText = 'white-space:pre-wrap;word-break:break-word;line-height:1.75';
   overlay.textContent = decoded;
   prose.style.setProperty('display', 'none', 'important');
@@ -2114,7 +2114,7 @@ function _decryptMsgEl(el) {
 function _decryptAll() {
   const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
   if (!chatId || !_encryptedIds.has(chatId)) return;
-  document.querySelectorAll('div[data-message-author-role="assistant"]:not([data-cgpt-dec])').forEach(_decryptMsgEl);
+  document.querySelectorAll('div[data-message-author-role="assistant"]:not([data-modus-dec])').forEach(_decryptMsgEl);
 }
 
 // After a user message was encoded before sending, its DOM node shows Base64.
@@ -2125,13 +2125,13 @@ function _restoreUserDisplay() {
   // iterate a copy so splices don't skip items
   [..._cgptEncQueue].forEach((item, qi) => {
     const el = userEls.find(e =>
-      !e.dataset.cgptDecUser &&
+      !e.dataset.modusDecUser &&
       (e.innerText?.trim() === item.encoded || e.innerText?.includes(item.encoded))
     );
     if (!el) return;
-    el.dataset.cgptDecUser = '1';
+    el.dataset.modusDecUser = '1';
     const overlay = document.createElement('div');
-    overlay.dataset.cgptDecOverlay = '1';
+    overlay.dataset.modusDecOverlay = '1';
     overlay.style.cssText = 'white-space:pre-wrap;word-break:break-word';
     overlay.textContent = item.original;
     // Hide only the direct prose descendant so layout is preserved
@@ -2215,7 +2215,7 @@ function _setupDecryptObserver() {
   _decryptObs = new MutationObserver(() => {
     const chatId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
     if (!chatId || !_encryptedIds.has(chatId)) return;
-    document.querySelectorAll('div[data-message-author-role="assistant"]:not([data-cgpt-dec])').forEach(_decryptMsgEl);
+    document.querySelectorAll('div[data-message-author-role="assistant"]:not([data-modus-dec])').forEach(_decryptMsgEl);
     if (_cgptEncQueue.length) _restoreUserDisplay();
   });
   const target = document.querySelector('main') || document.body;
@@ -2344,7 +2344,7 @@ function _fmtTime(ts) {
 
 function _buildMd(convos) {
   const date = new Date().toISOString().slice(0,10);
-  const modelName = document.getElementById('cgpt-badge-label')?.textContent||'ChatGPT';
+  const modelName = document.getElementById('modus-badge-label')?.textContent||'ChatGPT';
   const out = [];
   convos.forEach((c, ci) => {
     const msgs = Array.isArray(c?.msgs) ? c.msgs : [];
@@ -2352,7 +2352,7 @@ function _buildMd(convos) {
     out.push('# ' + (c?.title||'Untitled'), '');
     out.push('Model: ' + modelName);
     out.push('Exported: ' + date);
-    out.push('Source: ChatGPT Enhanced');
+    out.push('Source: Modus');
     out.push('');
     msgs.forEach(m => {
       const role = m?.role === 'user' ? 'USER' : 'ASSISTANT';
@@ -2367,7 +2367,7 @@ function _buildMd(convos) {
 function _buildTxt(convos) {
   const SEP = '-'.repeat(72);
   const date = new Date().toISOString().slice(0,10);
-  const modelName = document.getElementById('cgpt-badge-label')?.textContent||'ChatGPT';
+  const modelName = document.getElementById('modus-badge-label')?.textContent||'ChatGPT';
   const out = [];
   convos.forEach((c, ci) => {
     const msgs = Array.isArray(c?.msgs) ? c.msgs : [];
@@ -2376,7 +2376,7 @@ function _buildTxt(convos) {
     out.push('');
     out.push('Model:    ' + modelName);
     out.push('Exported: ' + date);
-    out.push('Source:   ChatGPT Enhanced');
+    out.push('Source:   Modus');
     out.push('', SEP, '');
     msgs.forEach(m => {
       out.push('[' + (m?.role==='user' ? 'USER' : 'ASSISTANT') + ']');
@@ -2402,10 +2402,10 @@ function _buildPdfHtml(convos) {
     return s;
   };
   const date = new Date().toISOString().slice(0,10);
-  const modelName = document.getElementById('cgpt-badge-label')?.textContent||'ChatGPT';
+  const modelName = document.getElementById('modus-badge-label')?.textContent||'ChatGPT';
   const totalMsgs = convos.reduce((a,c)=>a+(Array.isArray(c?.msgs)?c.msgs.length:0),0);
   const singleTitle = convos.length===1 ? esc(convos[0]?.title||'Untitled') : null;
-  const docTitle = singleTitle || 'ChatGPT Enhanced Export';
+  const docTitle = singleTitle || 'Modus Export';
   const msgsHtml = convos.map((c,ci) => {
     const msgList = Array.isArray(c?.msgs) ? c.msgs : [];
     const sep = ci>0 ? '<div class="conv-sep"></div>' : '';
@@ -2442,17 +2442,13 @@ function _buildPdfHtml(convos) {
   return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>'+docTitle+'</title>\n'+
     '<style>\n'+css+'\n</style></head><body><div class="page">\n'+
     '<div class="doc-title">'+docTitle+'</div>\n'+
-    '<div class="meta">Model: '+modelName+'<br>Exported: '+date+'<br>Source: ChatGPT Enhanced'+metaExtra+'</div>\n'+
+    '<div class="meta">Model: '+modelName+'<br>Exported: '+date+'<br>Source: Modus'+metaExtra+'</div>\n'+
     '<hr class="divider">\n'+
     msgsHtml+'\n'+
-    '<div class="footer">ChatGPT Enhanced</div>\n'+
+    '<div class="footer">Modus</div>\n'+
     '</div></body></html>';
-}
-
-function _downloadBlob(content, filename, mime) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content], { type: mime+';charset=utf-8' }));
-  a.download = filename; a.click();
+  '<div class="footer">Modus</div>\n'+
+  '</div></body></html>';
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
@@ -2485,7 +2481,7 @@ function _schedInject() {
         injectCheckboxes();
         if (_s.alphaMode) _renderVaultHeader();
       } catch (e) {
-        console.error('[CGPT+] Error in injectCheckboxes:', e);
+        console.error('[Modus] Error in injectCheckboxes:', e);
       }
     }
   });
@@ -2499,7 +2495,7 @@ function _schedBadge() {
   requestAnimationFrame(() => {
     _riBadge = false;
     if (!_dead && _s.modelBadge) {
-      try { setupModelBadge(); } catch (e) { console.error('[CGPT+] Error in setupModelBadge:', e); }
+      try { setupModelBadge(); } catch (e) { console.error('[Modus] Error in setupModelBadge:', e); }
     }
   });
 }
@@ -2507,7 +2503,7 @@ function _schedSidebar() {
   if (_riSidebar) return; _riSidebar = true;
   requestAnimationFrame(() => {
     _riSidebar = false;
-    if (!_dead && _s.compactSidebar && !document.getElementById('cgpt-icon-grid')) setupCompactSidebar();
+    if (!_dead && _s.compactSidebar && !document.getElementById('modus-icon-grid')) setupCompactSidebar();
   });
 }
 
@@ -2529,7 +2525,7 @@ const _mutObs = new MutationObserver(mutations => {
       }
       // Slow path — only enter if needed and node actually has children
       if (node.children?.length) {
-        if (!_riInject && _s.bulkActions && (_nodeHasSel(node, 'sidebarLink') || node.classList?.contains('cgpt-bulk-item'))) _schedInject();
+        if (!_riInject && _s.bulkActions && (_nodeHasSel(node, 'sidebarLink') || node.classList?.contains('modus-bulk-item'))) _schedInject();
         if (!_riObserve && _s.lagFix         && node.querySelector('[data-message-author-role]'))        _schedObserve();
         if (!_riBadge   && _s.modelBadge     && _nodeHasSel(node, 'modelBtn'))                          _schedBadge();
         if (!_riSidebar && _s.compactSidebar && _nodeHasSel(node, 'sidebarTools')) _schedSidebar();
@@ -2537,7 +2533,7 @@ const _mutObs = new MutationObserver(mutations => {
     }
     if (!_riBadge) {
       for (const node of mut.removedNodes) {
-        if (node.nodeType === 1 && node.id === 'cgpt-model-badge') { _schedBadge(); break; }
+        if (node.nodeType === 1 && node.id === 'modus-model-badge') { _schedBadge(); break; }
       }
     }
   }
@@ -2557,17 +2553,17 @@ function _onNav() {
   _ctxBarRetries = 0;
   _lastCtxFetch  = 0;
   _teardownCtxRefreshObserver();
-  document.getElementById('cgpt-ctx-bar')?.remove();
-  document.getElementById('cgpt-ctx-warn')?.remove();
-  document.getElementById('cgpt-ctx-popover')?.remove();
-  _cgptGridRetried = false;
-  console.log('[CGPT+] Navigation detected, re-initializing features');
+  document.getElementById('modus-ctx-bar')?.remove();
+  document.getElementById('modus-ctx-warn')?.remove();
+  document.getElementById('modus-ctx-popover')?.remove();
+  _modusGridRetried = false;
+  console.log('[Modus] Navigation detected, re-initializing features');
 
   requestAnimationFrame(() => {
-    if (_s.compactSidebar) { try { setupCompactSidebar(); } catch (e) { console.error('[CGPT+] _onNav compactSidebar error:', e); } }
+    if (_s.compactSidebar) { try { setupCompactSidebar(); } catch (e) { console.error('[Modus] _onNav compactSidebar error:', e); } }
     if (_s.dateGroups) { teardownDateGroups(); setTimeout(setupDateGroups, 600); }
     requestAnimationFrame(() => {
-      if (_s.modelBadge) { try { setupModelBadge(true); } catch (e) { console.error('[CGPT+] _onNav modelBadge error:', e); } }
+      if (_s.modelBadge) { try { setupModelBadge(true); } catch (e) { console.error('[Modus] _onNav modelBadge error:', e); } }
       if (_s.contextBar || _s.contextWarning) {
         if (_s.contextBar) _getOrCreateCtxBar();
         const id = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
@@ -2578,7 +2574,7 @@ function _onNav() {
         try {
           injectCheckboxes();
           if (_s.alphaMode) setupVault();
-        } catch (e) { console.error('[CGPT+] _onNav bulkActions error:', e); }
+        } catch (e) { console.error('[Modus] _onNav bulkActions error:', e); }
       }
       // Decrypt observer: active only when viewing an encrypted chat
       const _navId = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/)?.[1];
@@ -2641,49 +2637,49 @@ function _apply(key) {
       if (_s.alphaMode) {
         if (_s.bulkActions) {
           _ensureLockCss();
-          document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
-            if (link.querySelector('.cgpt-lock-icon')) return;
-            const chatId = link.dataset.cgptId;
-            const lkBtn = document.createElement('span'); lkBtn.className = 'cgpt-lock-icon';
+          document.querySelectorAll('.modus-bulk-item').forEach(link => {
+            if (link.querySelector('.modus-lock-icon')) return;
+            const chatId = link.dataset.modusId;
+            const lkBtn = document.createElement('span'); lkBtn.className = 'modus-lock-icon';
             lkBtn.title = _encryptedIds.has(chatId) ? 'Encrypted' : (_lockedIds.has(chatId) ? 'Hidden' : '');
             lkBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M18 10h-1V7a5 5 0 0 0-10 0v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2zm-6 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-7H9V7a3 3 0 0 1 6 0v3z"/></svg>`;
-            if (_lockedIds.has(chatId)) lkBtn.classList.add('cgpt-is-locked');
-            if (_encryptedIds.has(chatId)) lkBtn.classList.add('cgpt-is-encrypted');
+            if (_lockedIds.has(chatId)) lkBtn.classList.add('modus-is-locked');
+            if (_encryptedIds.has(chatId)) lkBtn.classList.add('modus-is-encrypted');
             link.appendChild(lkBtn);
           });
           _renderVaultHeader();
         }
         _renderActionBar();
       } else {
-        document.getElementById('cgpt-vault-hdr')?.remove();
-        document.querySelectorAll('.cgpt-lock-icon').forEach(el => el.remove());
+        document.getElementById('modus-vault-hdr')?.remove();
+        document.querySelectorAll('.modus-lock-icon').forEach(el => el.remove());
         _renderActionBar();
       }
       break;
     case 'bulkActions':
       if (_s.bulkActions) { injectCheckboxes(); if (_s.alphaMode) _renderVaultHeader(); break; }
-      document.querySelectorAll('.cgpt-cb').forEach(cb => cb.remove());
-      document.querySelectorAll('.cgpt-bulk-item').forEach(link => {
+      document.querySelectorAll('.modus-cb').forEach(cb => cb.remove());
+      document.querySelectorAll('.modus-bulk-item').forEach(link => {
         link.style.removeProperty('position'); link.style.removeProperty('overflow'); link.style.removeProperty('padding-left');
-        link.classList.remove('cgpt-bulk-item');
-        delete link.dataset.cgptItem; delete link.dataset.cgptId; delete link.dataset.cgptIndex;
+        link.classList.remove('modus-bulk-item');
+        delete link.dataset.modusItem; delete link.dataset.modusId; delete link.dataset.modusIndex;
       });
-      document.getElementById('cgpt-action-bar')?.remove();
-      document.getElementById('cgpt-cb-css')?.remove();
+      document.getElementById('modus-action-bar')?.remove();
+      document.getElementById('modus-cb-css')?.remove();
       _selectedIds.clear(); _lastCb = null;
       break;
     case 'compactSidebar':
       if (_s.compactSidebar) { setupCompactSidebar(); break; }
-      document.getElementById('cgpt-icon-grid')?.remove();
-      document.getElementById('cgpt-compact-css')?.remove();
-      document.querySelectorAll('[data-cgpt-grid-hidden]').forEach(el => { el.style.removeProperty('display'); delete el.dataset.cgptGridHidden; });
-      document.querySelectorAll('[data-cgpt-container-hidden]').forEach(el => { el.style.removeProperty('display'); delete el.dataset.cgptContainerHidden; });
-      _cgptGridRetried = false;
+      document.getElementById('modus-icon-grid')?.remove();
+      document.getElementById('modus-compact-css')?.remove();
+      document.querySelectorAll('[data-modus-grid-hidden]').forEach(el => { el.style.removeProperty('display'); delete el.dataset.modusGridHidden; });
+      document.querySelectorAll('[data-modus-container-hidden]').forEach(el => { el.style.removeProperty('display'); delete el.dataset.modusContainerHidden; });
+      _modusGridRetried = false;
       break;
     case 'modelBadge':
       if (_s.modelBadge) { setupModelBadge(true); break; }
-      document.getElementById('cgpt-model-badge')?.remove();
-      document.getElementById('cgpt-ctx-bar')?.remove();
+      document.getElementById('modus-model-badge')?.remove();
+      document.getElementById('modus-ctx-bar')?.remove();
       _bannerObs?.disconnect(); _modelBtnObs?.disconnect();
       break;
     case 'contextBar':
@@ -2703,7 +2699,7 @@ try {
     Object.keys(changes).forEach(k => { if (k in _s) { _s[k] = changes[k].newValue; _apply(k); } });
   });
   chrome.runtime.onMessage.addListener(msg => {
-    if (_dead || msg?.type !== 'CGPT_SETTINGS_UPDATE') return;
+    if (_dead || msg?.type !== 'MODUS_SETTINGS_UPDATE') return;
     const inc = msg.settings || {};
     Object.keys(DEFAULT_SETTINGS).forEach(k => {
       if (k in inc && _s[k] !== inc[k]) { _s[k] = inc[k]; _apply(k); }
@@ -2749,11 +2745,11 @@ setTimeout(() => {
   _syncGet(DEFAULT_SETTINGS).then(stored => {
     if (!_extCtxOk()) return; // context died before we got storage data
     _s = { ...DEFAULT_SETTINGS, ...stored };
-    console.log('[CGPT+] Settings loaded:', _s);
+    console.log('[Modus] Settings loaded:', _s);
     // Critical path — run immediately (affect visible content)
-    if (_s.lagFix)     { setupVirtualization(); console.log('[CGPT+] Virtualization enabled'); }
-    if (_s.modelBadge) { setupModelBadge(); console.log('[CGPT+] Model badge initialized'); }
-    if (_s.contextBar || _s.contextWarning) { setupContextBar(); console.log('[CGPT+] Context bar initialized'); }
+    if (_s.lagFix)     { setupVirtualization(); console.log('[Modus] Virtualization enabled'); }
+    if (_s.modelBadge) { setupModelBadge(); console.log('[Modus] Model badge initialized'); }
+    if (_s.contextBar || _s.contextWarning) { setupContextBar(); console.log('[Modus] Context bar initialized'); }
     // Non-critical — defer to idle so we don't block first paint
     // Always install the fetch interceptor — needed for vault encryption
     // even when contextBar/contextWarning are both off.
@@ -2763,45 +2759,48 @@ setTimeout(() => {
       if (_s.bulkActions) {
         try {
           injectCheckboxes();
-          console.log('[CGPT+] Checkboxes injected (bulkActions)');
+          console.log('[Modus] Checkboxes injected (bulkActions)');
           if (_s.alphaMode) setupVault();
-        } catch (e) { console.error('[CGPT+] Error injecting checkboxes:', e); }
+        } catch (e) { console.error('[Modus] Error injecting checkboxes:', e); }
       }
       if (_s.compactSidebar) {
         try {
           setupCompactSidebar();
-          console.log('[CGPT+] Compact sidebar initialized');
-        } catch (e) { console.error('[CGPT+] Error setting up compact sidebar:', e); }
+          console.log('[Modus] Compact sidebar initialized');
+        } catch (e) { console.error('[Modus] Error setting up compact sidebar:', e); }
       }
       if (_s.dateGroups) {
         try {
           setupDateGroups();
-          console.log('[CGPT+] Date groups initialized');
-        } catch (e) { console.error('[CGPT+] Error setting up date groups:', e); }
+          console.log('[Modus] Date groups initialized');
+        } catch (e) { console.error('[Modus] Error setting up date groups:', e); }
       }
     });
     _startWatchdog();
 
-    console.log('[CGPT+] v3.5.1 ready');
+    console.log('[Modus] v3.5.1 ready');
     
     // Schedule re-check after 3 seconds to ensure features are working
     setTimeout(() => {
-      const cbCount = document.querySelectorAll('.cgpt-cb').length;
-      const gridExists = !!document.getElementById('cgpt-icon-grid');
-      console.log(`[CGPT+] Re-check: ${cbCount} checkboxes, icon-grid: ${gridExists}`);
+      const cbCount = document.querySelectorAll('.modus-cb').length;
+      const gridExists = !!document.getElementById('modus-icon-grid');
+      console.log(`[Modus] Re-check: ${cbCount} checkboxes, icon-grid: ${gridExists}`);
       // If checkboxes should be enabled but aren't found, force re-inject
       if (_s.bulkActions && cbCount === 0 && document.querySelectorAll('a[href^="/c/"]').length > 0) {
-        console.log('[CGPT+] No checkboxes found, forcing re-injection...');
-        try { injectCheckboxes(); } catch (e) { console.error('[CGPT+] Force re-inject failed:', e); }
+        console.log('[Modus] No checkboxes found, forcing re-injection...');
+        try { injectCheckboxes(); } catch (e) { console.error('[Modus] Force re-inject failed:', e); }
       }
       // If compact sidebar should be enabled but isn't found, force setup
       if (_s.compactSidebar && !gridExists && document.querySelector('a[href="/images"]')) {
-        console.log('[CGPT+] Icon grid not found, forcing setup...');
-        try { setupCompactSidebar(); } catch (e) { console.error('[CGPT+] Force setup failed:', e); }
+        console.log('[Modus] Icon grid not found, forcing setup...');
+        try { setupCompactSidebar(); } catch (e) { console.error('[Modus] Force setup failed:', e); }
       }
     }, 3000);
   });
 }, 150);
 
 })();
+
+
+
 

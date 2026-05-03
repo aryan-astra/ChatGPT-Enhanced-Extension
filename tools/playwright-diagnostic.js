@@ -38,7 +38,7 @@ const fs = require('fs');
     // 1. Check if extension is injected by looking for extension markers
     const hasExtensionMarkers = await page.evaluate(() => {
       return {
-        hasConsoleLog: !!window.__cgptExtensionLoaded,
+        hasConsoleLog: !!window.__modusExtensionLoaded,
         hasGlobalVariable: typeof window._dead !== 'undefined',
         hasConfig: typeof CONFIG !== 'undefined',
       };
@@ -54,7 +54,7 @@ const fs = require('fs');
           return 'unknown';
         }
       });
-      const injectedIds = ['cgpt-model-badge', 'cgpt-ctx-bar', 'cgpt-cb-css', 'cgpt-compact-css', 'cgpt-dg-css', 'cgpt-lock-css', 'cgpt-vault-css', 'cgpt-action-bar-css'];
+      const injectedIds = ['modus-model-badge', 'modus-ctx-bar', 'modus-cb-css', 'modus-compact-css', 'modus-dg-css', 'modus-lock-css', 'modus-vault-css', 'modus-action-bar-css'];
       const found = {};
       for (const id of injectedIds) {
         found[id] = !!document.getElementById(id);
@@ -81,7 +81,7 @@ const fs = require('fs');
       return {
         found: true,
         hasCheckbox: !!link.querySelector('input[type="checkbox"]'),
-        hasClass: link.classList.contains('cgpt-bulk-item'),
+        hasClass: link.classList.contains('modus-bulk-item'),
         linkHTML: link.outerHTML.slice(0, 200),
         checkboxHTML: link.querySelector('input[type="checkbox"]')?.outerHTML || 'none',
       };
@@ -90,7 +90,7 @@ const fs = require('fs');
 
     // 5. Check for action bar
     const actionBarStatus = await page.evaluate(() => {
-      const bar = document.getElementById('cgpt-action-bar');
+      const bar = document.getElementById('modus-action-bar');
       if (!bar) return { found: false, reason: 'Action bar not in DOM' };
       return {
         found: true,
@@ -102,7 +102,7 @@ const fs = require('fs');
 
     // 6. Check for compact sidebar icon grid
     const compactSidebarStatus = await page.evaluate(() => {
-      const grid = document.getElementById('cgpt-icon-grid');
+      const grid = document.getElementById('modus-icon-grid');
       if (!grid) return { found: false, reason: 'Icon grid not in DOM' };
       return {
         found: true,
@@ -154,3 +154,5 @@ const fs = require('fs');
   await context.close();
   process.exit(0);
 })();
+
+

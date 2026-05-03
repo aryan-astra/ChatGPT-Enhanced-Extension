@@ -1,6 +1,8 @@
 <div align="center">
 
-# ChatGPT Enhanced
+# Modus
+
+<p align="center"><img src="assets/modus-banner.png" alt="Modus banner" /></p>
 
 **A Chrome MV3 extension that makes ChatGPT faster, cleaner, and easier to manage.**
 
@@ -34,14 +36,22 @@
 ## Getting Started
 
 ```bash
-git clone https://github.com/aryan-astra/ChatGPT-Enhanced-Extension.git
-cd chatgpt-enhanced
+git clone https://github.com/aryan-astra/Modus.git
+cd modus
 ```
 
 1. Open `chrome://extensions` in Chrome or Edge.
 2. Turn on Developer mode.
 3. Click Load unpacked and choose this folder.
 4. Open ChatGPT and use the extension toolbar popup to configure features.
+
+---
+
+## Releases
+
+When `manifest.json`/`package.json` version is bumped and pushed to `main`, GitHub Actions creates tag `v<version>`, publishes a GitHub Release, and attaches the extension ZIP asset automatically.
+
+Unzip the attached archive and load the extracted folder as an unpacked extension.
 
 ---
 

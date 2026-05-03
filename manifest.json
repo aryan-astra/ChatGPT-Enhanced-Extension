@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Enhanced",
+  "name": "Modus",
   "version": "3.5.1",
   "description": "Fixes typing lag with DOM virtualization and adds bulk sidebar management (select, archive, delete).",
   "permissions": [
@@ -20,16 +20,19 @@
     "service_worker": "background.js"
   },
   "icons": {
-    "16": "assets/chatgpt-enhanced-48_logo.png",
-    "48": "assets/chatgpt-enhanced-48_logo.png",
-    "128": "assets/chatgpt-enhanced-128_logo.png"
+    "16": "assets/modus-16x16.png",
+    "32": "assets/modus-32x32.png",
+    "48": "assets/modus-48x48.png",
+    "128": "assets/modus-128x128.png",
+    "512": "assets/modus-512x512.png"
   },
   "action": {
-    "default_title": "ChatGPT Enhanced",
+    "default_title": "Modus",
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "assets/chatgpt-enhanced-48_logo.png",
-      "48": "assets/chatgpt-enhanced-48_logo.png"
+      "16": "assets/modus-16x16.png",
+      "32": "assets/modus-32x32.png",
+      "48": "assets/modus-48x48.png"
     }
   },
   "content_scripts": [

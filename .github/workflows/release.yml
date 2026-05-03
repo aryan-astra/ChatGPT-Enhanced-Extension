@@ -1,0 +1,99 @@
+name: Release Modus
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - manifest.json
+      - package.json
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version and bump status
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION="$(jq -r '.version // empty' manifest.json)"
+          if [[ -z "$CURRENT_VERSION" ]]; then
+            echo "manifest.json version is missing."
+            exit 1
+          fi
+
+          PACKAGE_VERSION="$(jq -r '.version // empty' package.json)"
+          if [[ -n "$PACKAGE_VERSION" && "$PACKAGE_VERSION" != "$CURRENT_VERSION" ]]; then
+            echo "Version mismatch: manifest.json=$CURRENT_VERSION package.json=$PACKAGE_VERSION"
+            exit 1
+          fi
+
+          PREVIOUS_VERSION=""
+          if git cat-file -e HEAD^:manifest.json 2>/dev/null; then
+            PREVIOUS_VERSION="$(git show HEAD^:manifest.json | jq -r '.version // empty')"
+          fi
+
+          SHOULD_RELEASE="true"
+          if [[ -n "$PREVIOUS_VERSION" && "$PREVIOUS_VERSION" == "$CURRENT_VERSION" ]]; then
+            SHOULD_RELEASE="false"
+            echo "No manifest version bump detected ($CURRENT_VERSION). Skipping release."
+          fi
+
+          TAG="v$CURRENT_VERSION"
+          echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure release tag does not already exist
+        if: steps.version.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "Release tag $TAG already exists. Bump version before pushing."
+            exit 1
+          fi
+
+      - name: Create release archive
+        if: steps.version.outputs.should_release == 'true'
+        id: archive
+        shell: bash
+        run: |
+          ZIP_NAME="modus-${{ steps.version.outputs.tag }}.zip"
+          zip -r "$ZIP_NAME" \
+            manifest.json \
+            background.js \
+            content.js \
+            popup.html \
+            popup.css \
+            popup.js \
+            styles.css \
+            package.json \
+            package-lock.json \
+            README.md \
+            LICENSE \
+            TESTING.md \
+            assets/*.png \
+            tools/*.js
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        if: steps.version.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Modus ${{ steps.version.outputs.tag }}
+          files: ${{ steps.archive.outputs.zip_name }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true

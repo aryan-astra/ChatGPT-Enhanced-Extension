@@ -1,8 +1,8 @@
 /* ===========================================================================
-   ChatGPT Enhanced - styles.css
+  Modus - styles.css
    DOM structure verified 2026-02-22:
-   Each conversation = <a class="cgpt-bulk-item" href="/c/UUID">
-     <input class="cgpt-cb" type="checkbox">   ← injected first child
+   Each conversation = <a class="modus-bulk-item" href="/c/UUID">
+     <input class="modus-cb" type="checkbox">   ← injected first child
      <div>Title text</div>
      <button>Options</button>
    </a>
@@ -11,7 +11,7 @@
 /* ---------------------------------------------------------------------------
    Conversation link — becomes our item container
    --------------------------------------------------------------------------- */
-a.cgpt-bulk-item {
+a.modus-bulk-item {
   position: relative !important;
   overflow: visible !important;   /* Prevent checkbox from being clipped */
   /* Smooth padding reveal for checkbox */
@@ -19,19 +19,19 @@ a.cgpt-bulk-item {
 }
 
 /* Reveal checkbox space on hover */
-a.cgpt-bulk-item:hover {
+a.modus-bulk-item:hover {
   padding-left: 28px !important;
 }
 
 /* Keep padding if checkbox is checked */
-a.cgpt-bulk-item:has(.cgpt-cb:checked) {
+a.modus-bulk-item:has(.modus-cb:checked) {
   padding-left: 28px !important;
 }
 
 /* ---------------------------------------------------------------------------
    Checkbox — floats at left edge of the <a>, hidden until hover/checked
    --------------------------------------------------------------------------- */
-.cgpt-cb {
+.modus-cb {
   position:   absolute;
   left:       5px;
   top:        50%;
@@ -51,13 +51,13 @@ a.cgpt-bulk-item:has(.cgpt-cb:checked) {
 }
 
 /* Reveal on row hover */
-a.cgpt-bulk-item:hover .cgpt-cb {
+a.modus-bulk-item:hover .modus-cb {
   opacity:        1;
   pointer-events: auto;
 }
 
 /* Always visible when checked */
-.cgpt-cb:checked {
+.modus-cb:checked {
   opacity:        1 !important;
   pointer-events: auto !important;
 }
@@ -65,7 +65,7 @@ a.cgpt-bulk-item:hover .cgpt-cb {
 /* ---------------------------------------------------------------------------
    Action bar — pinned at the bottom of the nav sidebar
    --------------------------------------------------------------------------- */
-#cgpt-action-bar {
+#modus-action-bar {
   position:    sticky;
   bottom:      0;
   left:        0;
@@ -75,7 +75,7 @@ a.cgpt-bulk-item:hover .cgpt-cb {
   flex-wrap:   wrap;
   gap:         5px;
   padding:     8px 8px;
-  background:  #171717;          /* ChatGPT dark sidebar color */
+  background:  #171717;          /* Modus dark sidebar color */
   border-top:  1px solid rgba(255, 255, 255, 0.08);
   z-index:     999;
   font-size:   12px;
@@ -83,7 +83,7 @@ a.cgpt-bulk-item:hover .cgpt-cb {
   box-shadow:  0 -2px 8px rgba(0,0,0,0.3);
 }
 
-#cgpt-count {
+#modus-count {
   flex:          1;
   font-weight:   600;
   white-space:   nowrap;
@@ -95,7 +95,7 @@ a.cgpt-bulk-item:hover .cgpt-cb {
 /* ---------------------------------------------------------------------------
    Action buttons
    --------------------------------------------------------------------------- */
-.cgpt-btn {
+.modus-btn {
   border:        none;
   border-radius: 6px;
   padding:       4px 10px;
@@ -106,19 +106,19 @@ a.cgpt-bulk-item:hover .cgpt-cb {
   flex-shrink:   0;
 }
 
-.cgpt-btn-neutral {
+.modus-btn-neutral {
   background: rgba(255, 255, 255, 0.1);
   color:      #ececec;
 }
-.cgpt-btn-neutral:hover {
+.modus-btn-neutral:hover {
   background: rgba(255, 255, 255, 0.18);
 }
 
-.cgpt-btn-danger {
+.modus-btn-danger {
   background: #c0392b;
   color:      #fff;
 }
-.cgpt-btn-danger:hover {
+.modus-btn-danger:hover {
   background: #e04a3a;
 }
 
@@ -130,3 +130,4 @@ a.cgpt-bulk-item:hover .cgpt-cb {
 [role="complementary"] *:has(> [aria-label="Control"]) {
   display: none !important;
 }
+

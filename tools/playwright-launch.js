@@ -52,7 +52,7 @@ const fs = require('fs');
 
     // check for extension-injected elements (best-effort)
     try {
-      await page.waitForSelector('#cgpt-model-badge, .cgpt-bulk-item, #cgpt-action-bar', { timeout: 10000 });
+      await page.waitForSelector('#modus-model-badge, .modus-bulk-item, #modus-action-bar', { timeout: 10000 });
       console.log('[OK] Detected extension-injected UI (badge/action bar/checkboxes)');
     } catch (e) {
       console.warn('[WARN] Extension-injected UI not detected; ensure the extension is enabled in this browser profile');
@@ -68,3 +68,4 @@ const fs = require('fs');
   await context.close();
   process.exit(0);
 })();
+

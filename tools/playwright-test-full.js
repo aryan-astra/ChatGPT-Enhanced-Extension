@@ -73,8 +73,8 @@ const fs = require('fs');
       
       const first = links[0];
       const hasCheckbox = !!first.querySelector('input[type="checkbox"]');
-      const hasBulkClass = first.classList.contains('cgpt-bulk-item');
-      const checkboxCount = document.querySelectorAll('input.cgpt-cb').length;
+      const hasBulkClass = first.classList.contains('modus-bulk-item');
+      const checkboxCount = document.querySelectorAll('input.modus-cb').length;
       
       return {
         totalLinks: links.length,
@@ -89,7 +89,7 @@ const fs = require('fs');
     // Test 4: Check CSS injection for checkboxes
     console.log('\n[TEST 4] Checking CSS injection...');
     const cssTest = await page.evaluate(() => {
-      const cssIds = ['cgpt-cb-css', 'cgpt-compact-css', 'cgpt-action-bar-css'];
+      const cssIds = ['modus-cb-css', 'modus-compact-css', 'modus-action-bar-css'];
       const injected = {};
       for (const id of cssIds) {
         injected[id] = !!document.getElementById(id);
@@ -101,7 +101,7 @@ const fs = require('fs');
     // Test 5: Check compact sidebar
     console.log('\n[TEST 5] Checking compact sidebar...');
     const compactTest = await page.evaluate(() => {
-      const grid = document.getElementById('cgpt-icon-grid');
+      const grid = document.getElementById('modus-icon-grid');
       const sidebarTools = document.querySelectorAll('a[href="/images"], a[href="/apps"]');
       
       return {
@@ -133,8 +133,8 @@ const fs = require('fs');
     console.log('\n[TEST 7] Checking checkboxes after manual trigger...');
     await page.waitForTimeout(500);
     const afterTriggerTest = await page.evaluate(() => {
-      const checkboxCount = document.querySelectorAll('input.cgpt-cb').length;
-      const bulkItems = document.querySelectorAll('a.cgpt-bulk-item').length;
+      const checkboxCount = document.querySelectorAll('input.modus-cb').length;
+      const bulkItems = document.querySelectorAll('a.modus-bulk-item').length;
       return { checkboxCount, bulkItems };
     });
     console.log('  ✓ After trigger:', afterTriggerTest);
@@ -150,7 +150,7 @@ const fs = require('fs');
         const first = document.querySelector('a[href^="/c/"]');
         if (!first) return { error: 'Link disappeared' };
         
-        const cb = first.querySelector('input.cgpt-cb');
+        const cb = first.querySelector('input.modus-cb');
         if (!cb) return { error: 'Checkbox not found' };
         
         const style = window.getComputedStyle(cb);
@@ -183,3 +183,4 @@ const fs = require('fs');
   await context.close();
   process.exit(0);
 })();
+

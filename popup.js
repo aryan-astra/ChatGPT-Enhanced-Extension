@@ -20,7 +20,7 @@ function saveAndNotify(settings) {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     if (tab?.id && tab.url?.includes('chatgpt.com')) {
-      chrome.tabs.sendMessage(tab.id, { type: 'CGPT_SETTINGS_UPDATE', settings }).catch(() => {});
+      chrome.tabs.sendMessage(tab.id, { type: 'MODUS_SETTINGS_UPDATE', settings }).catch(() => {});
     }
   });
 }
@@ -64,3 +64,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+

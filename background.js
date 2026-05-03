@@ -37,7 +37,7 @@ chrome.webRequest.onSendHeaders.addListener(
         const merged = { ...existingHeaders, ...headersToSave };
         chrome.storage.local.set({ chatgpt_headers: merged });
       }).catch((err) => {
-        console.error('[CGPT+] Failed to cache outbound auth headers:', err);
+        console.error('[Modus] Failed to cache outbound auth headers:', err);
       });
     }
   },
@@ -117,3 +117,4 @@ chrome.runtime.onInstalled.addListener(() => {
     if (Object.keys(missing).length) chrome.storage.sync.set(missing);
   });
 });
+
