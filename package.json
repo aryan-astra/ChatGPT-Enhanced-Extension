@@ -6,6 +6,8 @@
     "@playwright/test": "^1.58.2"
   },
   "scripts": {
-    "playwright:launch": "node tools/playwright-launch.js"
+    "playwright:launch": "node tools/playwright-launch.js",
+    "playwright:diagnose": "node tools/playwright-diagnostic.js",
+    "test:full": "node tools/playwright-test-full.js"
   }
 }
